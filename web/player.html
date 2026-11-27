@@ -12,7 +12,7 @@
   #game.ds-focus .ejs_canvas_parent { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; height: 200% !important; }
   #game.ds-focus .ejs_canvas { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; }
   #ds-touch { position: absolute; z-index: 20; right: 4%; bottom: 4%; width: 20%; aspect-ratio: 4 / 3; box-sizing: border-box; padding: 2px; background: #f3ead2; border: 1px solid #1a1712; box-shadow: 0 2px 14px #000c; opacity: .88; touch-action: none; }
-  #ds-touch[hidden] { display: none; }
+  #ds-touch[hidden] { display: block; visibility: hidden; opacity: 0; pointer-events: none; }
   #ds-touch video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center bottom; image-rendering: pixelated; pointer-events: none; }
   /* hide EmulatorJS chrome – the app draws its own console UI */
   .ejs_context_menu, .ejs_menu_bar, .ejs_virtualGamepad_parent, .ejs_message, .ejs_popup_container { display: none !important; }
@@ -497,7 +497,10 @@
   const SHARP_LOSS = 0.06;
   let wholePixels = q.get('px') === 'whole';
   let pxScale = null;
+  let dsTouchWatch = null;
+  let dsTouchPointerDown = false;
   import('/lib/pixelscale.mjs').then((m) => { pxScale = m; fit(); }, () => {});
+  import('/lib/dstouch.mjs').then((m) => { dsTouchWatch = new m.DsTouchWatch(); }, () => {});
   const PICTURE = { gba: { w: 240, h: 160 }, gbc: { w: 160, h: 144 }, gb: { w: 160, h: 144 } };
   function fit() {
     const box = document.getElementById('game');
@@ -524,6 +527,12 @@
   }
   function setDsBattle(on) {
     const active = !!on;
+    if (dsTouchWatch) {
+      dsBattle = active;
+      const want = dsTouchWatch.setBattle(active);
+      if (want !== dsTouchShown) showDsTouch(want, false);
+      return;
+    }
     if (active && !dsBattle) {
       dsTouchOverride = null;
       autoDsTouch(true);
@@ -537,8 +546,65 @@
     dsBattle = active;
   }
   function setDsPrompt() {
+    if (dsTouchWatch) {
+      const want = dsTouchWatch.notePrompt();
+      if (want !== dsTouchShown) showDsTouch(want, false);
+      return;
+    }
     dsTouchOverride = null;
     autoDsTouch(true, 45000);
+  }
+  let dsSampleCanvas = null;
+  let dsSampleCtx = null;
+  function sampleDsScreens() {
+    if (system !== 'nds' || dsLayout !== 'focus' || !dsTouchWatch || !window.__emu?.ready) return;
+    if (!dsSampleCanvas) {
+      dsSampleCanvas = document.createElement('canvas');
+      dsSampleCanvas.width = 16;
+      dsSampleCanvas.height = 24;
+      dsSampleCtx = dsSampleCanvas.getContext('2d', { willReadFrequently: true, alpha: false });
+    }
+    if (!dsSampleCtx) return;
+    const c = gameCanvas();
+    let data = null;
+    if (c && c.width && c.height) {
+      const r = gameRect(c);
+      try {
+        dsSampleCtx.drawImage(c, r.x, r.y, r.w, r.h, 0, 0, 16, 24);
+        const d = dsSampleCtx.getImageData(0, 0, 16, 24).data;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] || d[i + 1] || d[i + 2]) { data = d; break; }
+        }
+      } catch { /* cross-origin or WebGL buffer unavailable */ }
+    }
+    if (!data && dsTouchVideo?.readyState >= 2 && dsTouchVideo.videoWidth > 0) {
+      try {
+        dsSampleCtx.drawImage(dsTouchVideo, 0, 0, 16, 24);
+        const d = dsSampleCtx.getImageData(0, 0, 16, 24).data;
+        for (let i = 0; i < d.length; i += 4) {
+          if (d[i] || d[i + 1] || d[i + 2]) { data = d; break; }
+        }
+      } catch { /* video frame unavailable */ }
+    }
+    if (!data) return;
+    const halfBytes = 16 * 12 * 3;
+    const topRgb = new Uint8Array(halfBytes);
+    const botRgb = new Uint8Array(halfBytes);
+    for (let i = 0, j = 0; i < halfBytes; i += 3, j += 4) {
+      topRgb[i] = data[j]; topRgb[i + 1] = data[j + 1]; topRgb[i + 2] = data[j + 2];
+    }
+    const botOff = 16 * 12 * 4;
+    for (let i = 0, j = botOff; i < halfBytes; i += 3, j += 4) {
+      botRgb[i] = data[j]; botRgb[i + 1] = data[j + 1]; botRgb[i + 2] = data[j + 2];
+    }
+    const want = dsTouchWatch.tick(topRgb, botRgb, { touching: dsTouchPointerDown });
+    if (want !== dsTouchShown) showDsTouch(want, false);
+  }
+  if (system === 'nds') {
+    setInterval(() => {
+      if (system !== 'nds' || dsLayout !== 'focus' || !dsTouchWatch || !window.__emu?.ready || document.hidden) return;
+      requestAnimationFrame(sampleDsScreens);
+    }, 250);
   }
   function ensureDsTouchVideo() {
     if (dsTouchVideo || system !== 'nds') return;
@@ -567,6 +633,7 @@
       else Object.assign(parent.style, { position: '', left: '', top: '', width: '', height: '' });
     }
     dsTouchBox.hidden = !focus || !dsTouchShown;
+    if (!focus && dsTouchWatch) dsTouchWatch.reset();
     if (focus) ensureDsTouchVideo();
     fit();
   }
@@ -583,6 +650,7 @@
   dsTouchBox.addEventListener('pointerdown', (e) => {
     if (dsLayout !== 'focus' || dsTouchBox.hidden) return;
     e.preventDefault();
+    dsTouchPointerDown = true;
     dsTouchBox.setPointerCapture(e.pointerId);
     dsTouchMouse(e, 'mousemove', true);
     dsTouchMouse(e, 'mousedown', true);
@@ -590,7 +658,7 @@
   dsTouchBox.addEventListener('pointermove', (e) => {
     if (dsTouchBox.hasPointerCapture(e.pointerId)) dsTouchMouse(e, 'mousemove', true);
   });
-  const liftDsTouch = (e) => { dsTouchMouse(e, 'mouseup', false); };
+  const liftDsTouch = (e) => { dsTouchPointerDown = false; dsTouchMouse(e, 'mouseup', false); };
   dsTouchBox.addEventListener('pointerup', liftDsTouch);
   dsTouchBox.addEventListener('pointercancel', liftDsTouch);
   addEventListener('resize', fit);
@@ -1450,7 +1518,14 @@
       }
       E().menuOptionChanged(k, v);
     },
-    toggleTouchScreen() { showDsTouch(!dsTouchShown, true); },
+    toggleTouchScreen() {
+      if (dsTouchWatch) {
+        const want = dsTouchWatch.onManualToggle(!dsTouchShown);
+        showDsTouch(want, false);
+        return;
+      }
+      showDsTouch(!dsTouchShown, true);
+    },
     setDsBattle,
     setDsPrompt,
     /** Settings › "Whole pixels only" switched while playing. */
@@ -1523,9 +1598,11 @@
     blur: e.blur || undefined,
   }, location.origin);
   let hotkeys = null; // the shortcuts' keys (Settings › Controls – lib/controls.mjs resolveHotkeys), handled by the play view
+  let dsKeyMap = {};
   // (capture: before EmulatorJS' own key listener, which presses the game buttons)
   window.addEventListener('keydown', (e) => {
     forwardKey(e, true);
+    if (system === 'nds' && dsLayout === 'focus' && dsTouchWatch && dsKeyMap[e.keyCode] === 'x') dsTouchWatch.noteMenuButton();
     // a shortcut's exact key belongs to the play view: EmulatorJS never sees it (Shift+R as reset while R is the B
     // button), and Tab fast-forwards here instead of moving the focus out of the game (before the controls are read: Tab)
     if (controlsLib ? controlsLib.isHotkeyKey(e, hotkeys) : e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
@@ -1635,6 +1712,7 @@
     const table = c.ejsControls(config?.controls, undefined, config?.pads)[0];
     padWanted = config?.pads?.device || null;
     hotkeys = c.resolveHotkeys(config?.controls);
+    dsKeyMap = c.keyButtons(config?.controls);
     padActions = c.padActions(config?.pads);
     window.parent?.postMessage({ type: 'emu-pad', action: 'ffHold', down: false }, location.origin); // (held under the old buttons)
     release(); // what was held under the old buttons
@@ -1652,6 +1730,7 @@
       controlsSig = JSON.stringify([st?.config?.controls || null, st?.config?.pads || null]);
       padWanted = st?.config?.pads?.device || null;
       hotkeys = c.resolveHotkeys(st?.config?.controls);
+      dsKeyMap = c.keyButtons(st?.config?.controls);
       padActions = c.padActions(st?.config?.pads);
       startPads(c);
     })

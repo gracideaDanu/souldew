@@ -4556,6 +4556,6 @@
   "play.dsLayoutTb": "Stacked screens",
   "play.dsLayoutLr": "Side by side",
   "play.dsLayoutFocus": "Focused top + touch popup",
-  "play.dsFocusHint": "In Focused mode the touch screen floats over the game. BW2 opens it automatically in battle; use Touch screen for other menus.",
+  "play.dsFocusHint": "In Focused mode the touch screen floats over the game and opens automatically for battles, menus, and keyboards.",
   "play.dsTouchToggle": "Touch screen"
 }

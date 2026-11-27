@@ -4556,6 +4556,6 @@
   "play.dsLayoutTb": "Bildschirme übereinander",
   "play.dsLayoutLr": "Nebeneinander",
   "play.dsLayoutFocus": "Hauptbildschirm + schwebender Touchscreen",
-  "play.dsFocusHint": "Im Fokusmodus schwebt der Touchscreen über dem Spiel. In BW2 wird er im Kampf automatisch geöffnet. Für andere Menüs nutzt du Touchscreen.",
+  "play.dsFocusHint": "Im Fokusmodus schwebt der Touchscreen über dem Spiel und öffnet sich automatisch für Kämpfe, Menüs und Tastaturen.",
   "play.dsTouchToggle": "Touchscreen"
 }

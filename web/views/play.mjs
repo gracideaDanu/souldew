@@ -410,7 +410,6 @@ export function GameSession({ session, mode }) {
   const speedRef = useRef(1);
   speedRef.current = speed;
   const isDs = target.system === 'nds';
-  const isB2W2 = isDs && (/^(IRE|IRD)/.test(String(target.code || '')) || /(?:black|white)\s*2|b2w2/i.test(String(target.gameId || target.name || '')));
   // Games with an IR cartridge (HeartGold/SoulSilver, Black/White 1+2) answer the main menu with
   // "A communication error has occurred" in the melonDS core once a save exists (any save, DeSmuME's too – still so in
   // the bundled melonDS 0.9.3, checked 11/2026). DeSmuME runs them fine and is the faster core for them anyway: in town
@@ -1248,7 +1247,7 @@ export function GameSession({ session, mode }) {
               setDemo(!!seen && !fight);
               inBattle = !!seen;
               const joined = noteMons([...res.party, ...(res.boxes || []), ...(res.box || [])]);
-              if (joined && isB2W2) emu()?.setDsPrompt?.('catch'); // BW2 asks for a nickname on the touch screen after the catch
+              if (joined && isDs) emu()?.setDsPrompt?.('catch'); // DS games ask for a nickname on the touch screen after the catch
               liveRead.current = { boxes: Array.isArray(res.boxes) || Array.isArray(res.box), party: res.party.length }; // (Gen 1: the box chosen in the PC – where a catch with a full team goes)
               setLiveState({ status: 'live', entry: entry.name });
               if (Number.isInteger(entry.gen)) setLiveGen((g) => (g === entry.gen ? g : entry.gen));
@@ -1434,15 +1433,14 @@ export function GameSession({ session, mode }) {
     emu()?.setControls?.({ controls, pads });
   }, [phase, controlsSig]);
 
-  // DS focus layout (BW2 first): keep the game’s own touch screen available as a floating panel, and bring it forward
-  // for battles and the nickname prompt after a catch. Other menus remain one button away because the game doesn’t expose
-  // a reliable cross-version “touch screen required” signal.
+  // DS focus layout: keep the game’s own touch screen available as a floating panel, and bring it forward automatically
+  // for battles, menus, and keyboards (plus the nickname prompt after a catch).
   useEffect(() => {
     if (phase !== 'running' || !isDs) return;
     const e = emu();
     e?.setOption?.('souldew_ds_layout', layout);
-    e?.setDsBattle?.(!!isB2W2 && !!battle?.enemy?.species);
-  }, [phase, isDs, isB2W2, layout, battle?.enemy?.species]);
+    e?.setDsBattle?.(!!battle?.enemy?.species);
+  }, [phase, isDs, layout, battle?.enemy?.species]);
 
   // A slower computer: measured every 2 s at 1×. DeSmuME first skips every other frame's rendering once it can't hold
   // 55 fps for a while (the game itself keeps its speed and timing; stays on for this session). When the game still
@@ -1923,7 +1921,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
               <b class="small">${t('play.dsLayout', 'DS screen layout')}</b>
               ${[['tb', t('play.dsLayoutTb', 'Stacked screens')], ['lr', t('play.dsLayoutLr', 'Side by side')], ['focus', t('play.dsLayoutFocus', 'Focused top + touch popup')]].map(([id, label]) => html`<button class=${`btn small ${layout === id ? 'primary' : 'ghost'}`} aria-pressed=${layout === id}
                 onClick=${() => { actions.layout(id); setLayoutOpen(false); focusGame(); }}>${label}</button>`)}
-              <span class="tiny faint">${t('play.dsFocusHint', 'In Focused mode the touch screen floats over the game. BW2 opens it automatically in battle; use Touch screen for other menus.')}</span>
+              <span class="tiny faint">${t('play.dsFocusHint', 'In Focused mode the touch screen floats over the game and opens automatically for battles, menus, and keyboards.')}</span>
             </div>`}
           </span>`}
           ${isDs && layout === 'focus' && html`<button class="btn small ghost" title=${t('play.dsTouchToggle', 'Show or hide the touch screen')} onClick=${actions.touchScreen}>${t('play.dsTouchToggle', 'Touch screen')}</button>`}

@@ -12,6 +12,7 @@ import { LINK_CMD, LINK_MSG } from '/shared/link.mjs';
 import { b64 } from '/lib/bytes.mjs';
 import { installWorld } from '/lib/worldoverlay.mjs';
 import { sharpScale, dsTouchAt } from '/lib/pixelscale.mjs';
+import { DsTouchWatch, sampleNativeFrame } from '/lib/dstouch.mjs';
 
 const q = new URLSearchParams(location.search);
 const SYSTEM = q.get('system') || 'nds';
@@ -206,38 +207,25 @@ let nextDepth = null; // DEPTH: the DS's 3D depth in the rectangles the overlay 
 let lastWatched = null; // (the newest of them – the A press checks what the game shows now)
 // the game's picture in game pixels (lib/pixelscale.mjs): the canvas holds pic × pre
 const pic = { w: 0, h: 0, pre: 1 };
-let touchTimer = null;
-function showTouch(on, { override = false } = {}) {
-  if (override) st.touchOverride = !!on;
+const dsWatch = new DsTouchWatch();
+let lastDsSampleAt = 0;
+let prevXBit = false;
+function showTouch(on) {
   if (st.touchShown === !!on) return;
   st.touchShown = !!on;
   touchWrap.hidden = !st.touchShown || !focused();
   post({ type: 'ds-touch', open: st.touchShown });
   drawFrame();
 }
-function autoTouch(on, ms = 0) {
-  if (st.touchOverride !== null) return;
-  clearTimeout(touchTimer);
-  showTouch(on);
-  if (on && ms) touchTimer = setTimeout(() => { if (!st.dsBattle) { st.touchOverride = null; showTouch(false); } }, ms);
-}
 function setDsBattle(on) {
   const active = !!on;
-  if (active && !st.dsBattle) {
-    st.touchOverride = null;
-    autoTouch(true);
-  } else if (!active && st.dsBattle) {
-    clearTimeout(touchTimer);
-    touchTimer = setTimeout(() => {
-      if (!st.dsBattle && st.touchOverride === null) showTouch(false);
-      st.touchOverride = null;
-    }, 2500);
-  }
   st.dsBattle = active;
+  const want = dsWatch.setBattle(active);
+  if (want !== st.touchShown) showTouch(want);
 }
 function dsPrompt() {
-  st.touchOverride = null;
-  autoTouch(true, 45000);
+  const want = dsWatch.notePrompt();
+  if (want !== st.touchShown) showTouch(want);
 }
 function upload(ctx, texture, uniforms, f, mode) {
   if (f.fmt === 2) ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGB, f.w, f.h, 0, ctx.RGB, ctx.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
@@ -267,6 +255,17 @@ function drawFrame() {
   }
   if (f.depth) window.__world?.onDepth?.(f.depth);
   if (f.watched) window.__world?.onWatched(f.watched);
+  if (focus) {
+    const now = performance.now();
+    if (now - lastDsSampleAt >= 250) {
+      lastDsSampleAt = now;
+      const s = sampleNativeFrame(f);
+      if (s) {
+        const want = dsWatch.tick(s.top, s.bot, { touching: inp.touchFromOverlay });
+        if (want !== st.touchShown) showTouch(want);
+      }
+    }
+  }
   gl.bindTexture(gl.TEXTURE_2D, tex);
   upload(gl, tex, uni, f, lr ? 1 : focus ? 2 : 0);
   touchWrap.hidden = !focus || !st.touchShown;
@@ -715,6 +714,9 @@ const inp = { keys: 0, pad: 0, test: 0, px: 0, py: 0, touch: false, touchFromOve
 let sentInput = '';
 function sendInput() {
   const buttons = inp.keys | inp.pad | inp.test;
+  const xDown = (buttons & (1 << BIT.x)) !== 0;
+  if (xDown && !prevXBit && focused()) dsWatch.noteMenuButton();
+  prevXBit = xDown;
   const sig = [buttons, inp.px, inp.py, inp.touch].join();
   if (sig === sentInput) return;
   sentInput = sig;
@@ -1149,10 +1151,11 @@ window.__emu = {
   setOption(k, v) {
     if (k === 'souldew_ds_layout' && SYSTEM === 'nds' && ['tb', 'lr', 'focus'].includes(v)) {
       st.dsLayout = v;
+      if (v !== 'focus') dsWatch.reset();
       touchWrap.hidden = !focused() || !st.touchShown;
       pic.w = 0;
       pic.h = 0;
-      if (focused() && st.dsBattle && st.touchOverride === null) showTouch(true);
+      if (focused() && dsWatch.shown) showTouch(true);
       else drawFrame();
       return;
     }
@@ -1161,7 +1164,10 @@ window.__emu = {
       drawFrame();
     }
   },
-  toggleTouchScreen() { showTouch(!st.touchShown, { override: true }); },
+  toggleTouchScreen() {
+    const want = dsWatch.onManualToggle(!st.touchShown);
+    if (want !== st.touchShown) showTouch(want);
+  },
   setDsBattle,
   setDsPrompt: dsPrompt,
   /** Settings › "Whole pixels only" switched while playing. */
