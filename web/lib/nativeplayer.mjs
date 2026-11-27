@@ -271,8 +271,8 @@ function drawFrame() {
   upload(gl, tex, uni, f, lr ? 1 : focus ? 2 : 0);
   touchWrap.hidden = !focus || !st.touchShown;
   if (focus && st.touchShown && touchGl) {
-    const w = Math.max(256, Math.round(cw * pic.pre * 0.46));
-    const h = Math.max(192, Math.round(ch * pic.pre * 0.46));
+    const w = Math.max(256, Math.round(cw * pic.pre * 0.20));
+    const h = Math.max(192, Math.round(ch * pic.pre * 0.20));
     if (touchCanvas.width !== w || touchCanvas.height !== h) { touchCanvas.width = w; touchCanvas.height = h; }
     touchGl.viewport(0, 0, w, h);
     touchGl.bindTexture(touchGl.TEXTURE_2D, touchTex);
@@ -295,7 +295,7 @@ function streamFrame() {
   x.imageSmoothingEnabled = false; // a whole factor down: the game's pixels exactly
   x.drawImage(canvas, 0, 0, w, h);
   if (focused() && st.touchShown) {
-    const tw = w * 0.46, th = h * 0.46, left = w * 0.50, top = h * 0.50;
+    const tw = w * 0.20, th = h * 0.20, left = w * 0.76, top = h * 0.76;
     x.fillStyle = '#f3ead2';
     x.fillRect(left - 2, top - 2, tw + 4, th + 4);
     x.drawImage(touchCanvas, left, top, tw, th);
