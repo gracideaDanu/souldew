@@ -48,19 +48,19 @@ test('DsTouchWatch stays hidden on dark overworld and opens on menu/keyboard', (
 
   // Two consecutive active frames open without X button
   assert.equal(w.tick(top, menu, { now: 1500 }), false);
-  assert.equal(w.tick(top, menu, { now: 1750 }), true);
+  assert.equal(w.tick(top, menu, { now: 1600 }), true);
 
-  // Brief 500 ms black fade between menus does not hide
-  assert.equal(w.tick(top, dark, { now: 2000 }), true);
-  assert.equal(w.tick(top, dark, { now: 2400 }), true);
+  // Brief 250 ms black fade between menus does not hide
+  assert.equal(w.tick(top, dark, { now: 1700 }), true);
+  assert.equal(w.tick(top, dark, { now: 1950 }), true);
 
   // Returning to menu keeps it open
-  assert.equal(w.tick(top, menu, { now: 2600 }), true);
+  assert.equal(w.tick(top, menu, { now: 2050 }), true);
 
-  // Closing menu (dark for >= 1000 ms) hides it
-  assert.equal(w.tick(top, dark, { now: 3000 }), true);
-  assert.equal(w.tick(top, dark, { now: 3999 }), true);
-  assert.equal(w.tick(top, dark, { now: 4000 }), false);
+  // Closing menu (dark for >= 350 ms) hides it
+  assert.equal(w.tick(top, dark, { now: 2200 }), true);
+  assert.equal(w.tick(top, dark, { now: 2549 }), true);
+  assert.equal(w.tick(top, dark, { now: 2550 }), false);
 });
 
 test('DsTouchWatch opens on first active frame after X menu button is pressed', () => {
@@ -98,10 +98,10 @@ test('DsTouchWatch learns non-dark idle baseline (C-Gear ON / Poketch) while wal
   t += 250;
   assert.equal(w.tick(makePattern(42, 50, 140), menu, { now: t }), true);
 
-  // Returning to C-Gear baseline -> hides after idleHideMs
-  t += 250;
+  // Returning to C-Gear baseline -> hides after baselineHideMs (150 ms)
+  t += 100;
   assert.equal(w.tick(makePattern(43, 50, 140), cgear, { now: t }), true);
-  t += 1000;
+  t += 150;
   assert.equal(w.tick(makePattern(44, 50, 140), cgear, { now: t }), false);
 });
 
@@ -112,19 +112,20 @@ test('DsTouchWatch respects battle grace period, touching state, and manual over
   const menu = makePattern(2, 60, 150);
 
   assert.equal(w.setBattle(true, 1000), true);
-  assert.equal(w.tick(top, dark, { now: 1250 }), true);
+  assert.equal(w.tick(top, dark, { now: 1100 }), true);
   assert.equal(w.setBattle(false, 2000), true);
-  assert.equal(w.tick(top, dark, { now: 3000 }), true);
-  assert.equal(w.tick(top, dark, { now: 4500 }), true);
-  assert.equal(w.tick(top, dark, { now: 5500 }), false);
+  assert.equal(w.tick(top, dark, { now: 2200 }), true);
+  assert.equal(w.tick(top, dark, { now: 2499 }), true);
+  // battleHideMs (500 ms) does not stack on top of idleHideMs (350 ms)
+  assert.equal(w.tick(top, dark, { now: 2550 }), false);
 
   // Never auto-hide while touching
   w.tick(top, menu, { now: 6000 });
-  assert.equal(w.tick(top, menu, { now: 6250 }), true);
-  assert.equal(w.tick(top, dark, { now: 6500, touching: true }), true);
-  assert.equal(w.tick(top, dark, { now: 8000, touching: true }), true);
-  assert.equal(w.tick(top, dark, { now: 8500, touching: false }), true);
-  assert.equal(w.tick(top, dark, { now: 9500, touching: false }), false);
+  assert.equal(w.tick(top, menu, { now: 6100 }), true);
+  assert.equal(w.tick(top, dark, { now: 6200, touching: true }), true);
+  assert.equal(w.tick(top, dark, { now: 7000, touching: true }), true);
+  assert.equal(w.tick(top, dark, { now: 7100, touching: false }), true);
+  assert.equal(w.tick(top, dark, { now: 7450, touching: false }), false);
 
   // Manual hide stays hidden on same screen, clears when screen changes significantly
   w.tick(top, menu, { now: 10000 });

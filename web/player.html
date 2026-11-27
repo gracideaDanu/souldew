@@ -604,7 +604,7 @@
     setInterval(() => {
       if (system !== 'nds' || dsLayout !== 'focus' || !dsTouchWatch || !window.__emu?.ready || document.hidden) return;
       requestAnimationFrame(sampleDsScreens);
-    }, 250);
+    }, 100);
   }
   function ensureDsTouchVideo() {
     if (dsTouchVideo || system !== 'nds') return;
@@ -1602,7 +1602,10 @@
   // (capture: before EmulatorJS' own key listener, which presses the game buttons)
   window.addEventListener('keydown', (e) => {
     forwardKey(e, true);
-    if (system === 'nds' && dsLayout === 'focus' && dsTouchWatch && dsKeyMap[e.keyCode] === 'x') dsTouchWatch.noteMenuButton();
+    if (system === 'nds' && dsLayout === 'focus' && dsTouchWatch && dsKeyMap[e.keyCode] === 'x') {
+      dsTouchWatch.noteMenuButton();
+      setTimeout(() => requestAnimationFrame(sampleDsScreens), 60);
+    }
     // a shortcut's exact key belongs to the play view: EmulatorJS never sees it (Shift+R as reset while R is the B
     // button), and Tab fast-forwards here instead of moving the focus out of the game (before the controls are read: Tab)
     if (controlsLib ? controlsLib.isHotkeyKey(e, hotkeys) : e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {

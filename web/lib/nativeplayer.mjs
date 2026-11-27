@@ -257,7 +257,7 @@ function drawFrame() {
   if (f.watched) window.__world?.onWatched(f.watched);
   if (focus) {
     const now = performance.now();
-    if (now - lastDsSampleAt >= 250) {
+    if (now - lastDsSampleAt >= 100) {
       lastDsSampleAt = now;
       const s = sampleNativeFrame(f);
       if (s) {
