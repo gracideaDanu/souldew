@@ -419,6 +419,10 @@
   "battle.vsMon": "against {mon}",
   "battle.wild": "wild",
   "battle.yourMoves": "{mon}’s moves",
+  "battle.moveType": "Type",
+  "battle.movePower": "Power",
+  "battle.moveEffect": "Effect",
+  "battle.moveEffectUnknown": "Effect unavailable",
   "board.alive": "alive",
   "board.allRuns": "All runs",
   "board.badges": "{n} badge|{n} badges",
@@ -4547,5 +4551,11 @@
   "world.toggleHint2": "Your partners walk in your game when you’re on the same map or next door, with the Pokémon at the front of their team. Walk up to them and press A to trade, battle, wave or play rock-paper-scissors.",
   "world.trade": "Trade",
   "world.watch": "Watch",
-  "world.wave": "Wave"
+  "world.wave": "Wave",
+  "play.dsLayout": "DS screen layout",
+  "play.dsLayoutTb": "Stacked screens",
+  "play.dsLayoutLr": "Side by side",
+  "play.dsLayoutFocus": "Focused top + touch popup",
+  "play.dsFocusHint": "In Focused mode the touch screen floats over the game. BW2 opens it automatically in battle; use Touch screen for other menus.",
+  "play.dsTouchToggle": "Touch screen"
 }

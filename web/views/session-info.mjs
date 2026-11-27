@@ -11,7 +11,7 @@ import {
   areaName, causeText, slotsOf, othersOf, openAreas, isNuzlocke, isTogether, pairTypeClash, typeHelpOn, progression, lives as getLives, livesFor,
 } from '../lib/run.mjs';
 import { statusOf, statusLabel, shownLevel } from './party.mjs';
-import { effectiveness, defenseChart, moveInfo, matchup } from '/shared/typechart.mjs';
+import { effectiveness, defenseChart, moveInfo, moveEffect, matchup } from '/shared/typechart.mjs';
 import { catchRow, chanceText, holdFoeStatus } from '/shared/catchrate.mjs';
 import { isLegendary } from '/shared/legendaries.mjs';
 import { RestartModal } from './restart.mjs';
@@ -470,7 +470,13 @@ export function BattlePanel({ battle, mine, gen, game = '', isRun, collapsed = f
     const info = moveInfo(moves, id, moveGen);
     return { id, info: info && rt?.moves?.[id] ? { ...info, type: rt.moves[id] } : info };
   }).filter((m) => m.info && (!damaging || m.info.power > 0)));
-  const foeData = foes.map((f) => ({ f, types: foeTypesOf(f), moves: movesOf(f.moves, true) }));
+  const moveTitle = (id, info) => [
+    `${t('battle.moveType', 'Type')}: ${info.type ? typeLabel(info.type) : '—'}`,
+    `${t('battle.movePower', 'Power')}: ${info.power > 0 ? info.power : '—'}`,
+    `${t('battle.moveEffect', 'Effect')}: ${moveEffect(moves, id, moveGen, currentLang()) || t('battle.moveEffectUnknown', 'Effect unavailable')}`,
+  ].join('\n');
+  // Keep every known foe move for display; matchup() filters status moves out of damage calculations itself.
+  const foeData = foes.map((f) => ({ f, types: foeTypesOf(f), moves: movesOf(f.moves, false) }));
   // (Play together: no catch rules – only the matchup help)
   const r = isRun && doc && !isTogether(manifest) ? getRules(doc, manifest) : null;
   const solo = isRun && isNuzlocke(manifest);
@@ -547,7 +553,7 @@ export function BattlePanel({ battle, mine, gen, game = '', isRun, collapsed = f
     ${notes.length > 0 && html`<div class="bt-notes">${notes.map((x) => html`<span class="rs-chip honour" title=${t('nz.honourHint', 'The app can’t check this – it only reminds you. Keep it yourself.')}>${x}</span>`)}</div>`}
     ${!help && html`<p class="tiny faint bt-nohelp">${t('battle.helpOff', 'Type matchup help is off in this run.')}</p>`}
     ${help && !matchups && html`<p class="tiny faint bt-nohelp">${t('battle.noChart', 'souldew couldn’t read this ROM hack’s type chart – it shows the types, but no matchups rather than wrong ones.')}</p>`}
-    ${help && matchups && outs.map((m) => html`<${OutHelp} key=${m.key || m.species} mon=${m} foes=${foeData} typesOf=${typesOf} movesOf=${movesOf} gen=${gen}
+    ${help && matchups && outs.map((m) => html`<${OutHelp} key=${m.key || m.species} mon=${m} foes=${foeData} typesOf=${typesOf} movesOf=${movesOf} moveTitle=${moveTitle} gen=${gen}
       hits=${onPrefs ? { open: hitsOpen, toggle: () => onPrefs({ hits: !hitsOpen }) } : null} />`)}
     ${help && matchups && html`<${TeamCheck} team=${team} out=${new Set(outs)} foe=${foeData.find(({ f }) => !(f.maxHp > 0 && f.hp === 0)) || foeData[0]} typesOf=${typesOf} movesOf=${movesOf} gen=${gen} hideFoeMoves=${!!onPrefs && !hitsOpen} />`}
     ${help && matchups && foeData.map(({ f, types }) => types.length > 0 && html`<${TypeChart} key=${`c${f.species}`} title=${t('battle.chart', '{mon} against types', { mon: speciesName(f.species) })} chart=${defenseChart(types, gen, { fairy })} />`)}
@@ -600,23 +606,23 @@ function CatchChance({ foe, foes, types, gen, game, balls }) {
 
 /**
  * One of your Pokémon that is out: how its moves land on every opponent, and what hits it. `hits` ({ open, toggle }):
- * the opponents' moves fold in under their head line (the player's choice, remembered with the panel) – they'd tell
- * what an opponent knows before it uses a move.
+ * all known opponent moves fold in under their head line (the player's choice, remembered with the panel).
  */
-function OutHelp({ mon, foes, typesOf, movesOf, gen, hits = null }) {
+function OutHelp({ mon, foes, typesOf, movesOf, moveTitle, gen, hits = null }) {
   const monTypes = typesOf(mon.species, mon);
   const myMoves = movesOf(mon.moves, false);
   const many = foes.length > 1;
   const title = t('battle.danger', 'What hits {mon}', { mon: monName(mon) });
   const open = !hits || hits.open;
   const listId = `bt-hits-${String(mon.key ?? mon.species).replace(/[^\w-]/g, '')}`;
-  // incoming: the opponents' known damaging moves, else what their own types would do (STAB)
+  // Show every known move, including status moves. Only use STAB as a fallback when no move data is known.
   const incoming = foes.flatMap(({ f, types, moves: fm }) => (fm.length
-    ? fm.map(({ id, info }) => ({ key: `${f.species}:${id}`, by: f, label: moveName(id), type: info.type, m: effectiveness(info.type, monTypes, gen) }))
+    ? fm.map(({ id, info }) => ({ key: `${f.species}:${id}`, by: f, label: moveName(id), title: moveTitle(id, info), type: info.type,
+      m: info.cls === 'status' || !info.type ? null : effectiveness(info.type, monTypes, gen) }))
     : types.map((ty) => ({ key: `${f.species}:${ty}`, by: f, label: t('battle.stab', '{type} attacks', { type: typeLabel(ty) }), type: ty, m: effectiveness(ty, monTypes, gen) }))));
   return html`${myMoves.length > 0 && html`<div class="bt-block">
       <h4>${t('battle.yourMoves', '{mon}’s moves', { mon: monName(mon) })}${many ? html` <span class="bt-vs">${t('battle.vsBoth', 'against {names}', { names: foes.map(({ f }) => speciesName(f.species)).join(' · ') })}</span>` : ''}</h4>
-      <ul class="bt-moves">${myMoves.map(({ id, info }) => html`<li key=${id}><span class=${`type t-${info.type || 'normal'}`}>${moveName(id)}</span>
+      <ul class="bt-moves">${myMoves.map(({ id, info }) => html`<li key=${id}><span class=${`type t-${info.type || 'normal'}`} title=${moveTitle(id, info)}>${moveName(id)}</span>
         <span class="bt-mults">${foes.map(({ f, types }) => {
           const m = info.cls === 'status' || !info.type ? null : effectiveness(info.type, types, gen);
           const vs = many ? t('battle.vsMon', 'against {mon}', { mon: speciesName(f.species) }) : undefined;
@@ -627,7 +633,7 @@ function OutHelp({ mon, foes, typesOf, movesOf, gen, hits = null }) {
           <span class="bt-fold-title">${title}</span><${Icon} name=${open ? 'chevUp' : 'chevDown'} size=${14} /></button></h4>`
         : html`<h4>${title}</h4>`}
       <ul class="bt-moves" id=${listId} hidden=${!open}>
-        ${open && incoming.map((x) => html`<li key=${x.key}><span class=${`type t-${x.type}`}>${many ? `${speciesName(x.by.species)}: ` : ''}${x.label}</span><span class=${`mult ${multClass(x.m)} foe`}>${multText(x.m)} ${multLabel(x.m)}</span></li>`)}
+        ${open && incoming.map((x) => html`<li key=${x.key}><span class=${`type t-${x.type}`} title=${x.title || undefined}>${many ? `${speciesName(x.by.species)}: ` : ''}${x.label}</span><span class=${`mult ${multClass(x.m)} foe`}>${multText(x.m)} ${multLabel(x.m)}</span></li>`)}
       </ul>
     </div>`;
 }

@@ -98,6 +98,12 @@ export function moveInfo(moves, id, gen = 4) {
   return { type: type === 'unknown' ? null : type, power, cls: physicalSpecialSplit(type, moves.cls[id], gen) };
 }
 
+/** Short effect text for a move, localized where PokeAPI has a translation, with English as fallback. */
+export function moveEffect(moves, id, gen = 4, lang = 'en') {
+  const effect = moves?.effectByGen?.[gen]?.[id] ?? moves?.effect?.[id];
+  return effect ? moves?.effectText?.[lang]?.[effect] || moves?.effectText?.en?.[effect] || '' : '';
+}
+
 /**
  * Switch-in check for the battle helper: how a Pokémon fares against the opponent. `deals` – its best damaging move
  * against the opponent's types (its own types when its moves aren't known: what its STAB would do); `takes` – the

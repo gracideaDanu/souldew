@@ -25,6 +25,10 @@
   "battle.typeTwice": "même type",
   "battle.wild": "sauvage",
   "battle.yourMoves": "Capacités de {mon}",
+  "battle.moveType": "Type",
+  "battle.movePower": "Puissance",
+  "battle.moveEffect": "Effet",
+  "battle.moveEffectUnknown": "Effet indisponible",
   "board.alive": "en vie",
   "board.allRuns": "Tous les runs",
   "board.badges": "{n} badge|{n} badges",
@@ -4547,5 +4551,11 @@
   "plus.trialLede": "Tout ce qui est sur cette page est à toi jusqu’au {date}. Rien ne se renouvelle et il n’y a rien à résilier – ensuite souldew revient à ses looks gratuits et tes choix t’attendent.",
   "plus.trialOn": "souldew+ est à toi pendant 7 jours",
   "plus.trialTry": "Essayer souldew+ gratuitement 7 jours",
-  "plus.trialUsed": "L’essai gratuit a déjà été utilisé sur ce compte Discord."
+  "plus.trialUsed": "L’essai gratuit a déjà été utilisé sur ce compte Discord.",
+  "play.dsLayout": "Disposition des écrans DS",
+  "play.dsLayoutTb": "Écrans empilés",
+  "play.dsLayoutLr": "Côte à côte",
+  "play.dsLayoutFocus": "Écran principal + tactile flottant",
+  "play.dsFocusHint": "En mode Focus, l’écran tactile flotte sur le jeu. Dans BW2, il s’ouvre automatiquement en combat ; utilisez Écran tactile pour les autres menus.",
+  "play.dsTouchToggle": "Écran tactile"
 }

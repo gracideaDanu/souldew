@@ -25,6 +25,10 @@
   "battle.typeTwice": "stesso tipo",
   "battle.wild": "selvatico",
   "battle.yourMoves": "Mosse di {mon}",
+  "battle.moveType": "Tipo",
+  "battle.movePower": "Potenza",
+  "battle.moveEffect": "Effetto",
+  "battle.moveEffectUnknown": "Effetto non disponibile",
   "board.alive": "vivo",
   "board.allRuns": "Tutte le run",
   "board.badges": "{n} medaglia|{n} medaglie",
@@ -4547,5 +4551,11 @@
   "plus.trialLede": "Tutto ciò che è in questa pagina è tuo fino al {date}. Niente si rinnova e non c’è nulla da disdire – poi souldew torna ai look gratuiti e le tue scelte ti aspettano.",
   "plus.trialOn": "souldew+ è tuo per 7 giorni",
   "plus.trialTry": "Prova souldew+ gratis per 7 giorni",
-  "plus.trialUsed": "La prova gratuita è già stata usata su questo account Discord."
+  "plus.trialUsed": "La prova gratuita è già stata usata su questo account Discord.",
+  "play.dsLayout": "Layout schermi DS",
+  "play.dsLayoutTb": "Schermi sovrapposti",
+  "play.dsLayoutLr": "Affiancati",
+  "play.dsLayoutFocus": "Schermo principale + touch fluttuante",
+  "play.dsFocusHint": "In modalità Focus, lo schermo touch fluttua sul gioco. In BW2 si apre automaticamente in battaglia; usa Schermo touch per gli altri menu.",
+  "play.dsTouchToggle": "Schermo touch"
 }

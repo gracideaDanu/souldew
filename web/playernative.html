@@ -8,7 +8,11 @@
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   body { display: grid; place-items: center; }
   /* the game's picture, sharp pixels, scaled to the frame by lib/nativeplayer.mjs */
+  #stage { position: relative; flex: none; }
   #screen { display: block; image-rendering: pixelated; touch-action: none; cursor: default; }
+  #touch-wrap { position: absolute; right: 4%; bottom: 4%; width: 46%; aspect-ratio: 4 / 3; box-sizing: border-box; padding: 2px; background: #f3ead2; border: 1px solid #1a1712; box-shadow: 0 2px 14px #000c; z-index: 2; touch-action: none; }
+  #touch-wrap[hidden] { display: none; }
+  #touch-screen { display: block; width: 100%; height: 100%; image-rendering: pixelated; touch-action: none; }
   #wait { position: absolute; inset: 0; display: grid; place-items: center; padding: 24px; text-align: center; font: 600 14px/1.4 system-ui, sans-serif; color: #ebe6da; background: #000; }
   /* "Linking…": over the last picture while the game goes into a link session (or back) – no restart, no black screen */
   #linking { position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; padding: 6px 12px;
@@ -21,7 +25,7 @@
 </style>
 </head>
 <body>
-<canvas id="screen" width="256" height="384"></canvas>
+<div id="stage"><canvas id="screen" width="256" height="384"></canvas><div id="touch-wrap" hidden><canvas id="touch-screen" width="256" height="192"></canvas></div></div>
 <div id="wait">…</div>
 <div id="linking" role="status" aria-live="polite"><i></i><span></span></div>
 <script type="module" src="/lib/nativeplayer.mjs"></script>

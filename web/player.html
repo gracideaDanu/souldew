@@ -7,6 +7,13 @@
 <style>
   html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
   #game { position: absolute; inset: 0; }
+  #game.ds-focus { overflow: hidden; }
+  #game.ds-focus .ejs_parent, #game.ds-focus .ejs_game { overflow: hidden !important; }
+  #game.ds-focus .ejs_canvas_parent { position: absolute !important; left: 0 !important; top: 0 !important; width: 100% !important; height: 200% !important; }
+  #game.ds-focus .ejs_canvas { width: 100% !important; height: 100% !important; max-width: none !important; max-height: none !important; }
+  #ds-touch { position: absolute; z-index: 20; right: 4%; bottom: 4%; width: 46%; aspect-ratio: 4 / 3; box-sizing: border-box; padding: 2px; background: #f3ead2; border: 1px solid #1a1712; box-shadow: 0 2px 14px #000c; touch-action: none; }
+  #ds-touch[hidden] { display: none; }
+  #ds-touch video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: center bottom; image-rendering: pixelated; pointer-events: none; }
   /* hide EmulatorJS chrome – the app draws its own console UI */
   .ejs_context_menu, .ejs_menu_bar, .ejs_virtualGamepad_parent, .ejs_message, .ejs_popup_container { display: none !important; }
   .ejs_canvas { image-rendering: pixelated; }
@@ -19,6 +26,8 @@
 </head>
 <body>
 <div id="game"></div>
+<!-- EmulatorJS replaces #game's contents during startup, so the touch overlay must live beside it. -->
+<div id="ds-touch" hidden></div>
 <script>
 // Hosted inside the Play view (same origin). Boots EmulatorJS for one ROM and exposes a small
 // control/memory API on window.__emu. The parent page drives it; nothing here talks to the network
@@ -462,6 +471,14 @@
   // The game area inside the canvas: RetroArch letterboxes the picture into the element. The play view
   // already sizes the iframe to the console's aspect, so this only trims bars (e.g. in fullscreen).
   let sideBySide = /left/i.test(q.get('layout') || ''); // DS screens next to each other (switchable while playing)
+  let dsLayout = q.get('dsLayout') === 'focus' ? 'focus' : sideBySide ? 'lr' : 'tb';
+  let dsTouchShown = false;
+  let dsBattle = false;
+  let dsTouchOverride = null;
+  let dsTouchTimer = null;
+  let dsTouchVideo = null;
+  let dsTouchStream = null;
+  const dsTouchBox = document.getElementById('ds-touch');
   const GAME_AR = { gba: 3 / 2, gbc: 10 / 9, gb: 10 / 9 };
   function gameRect(c) {
     const ar = system === 'nds' ? (sideBySide ? 512 / 192 : 256 / 384) : GAME_AR[system];
@@ -485,7 +502,7 @@
   function fit() {
     const box = document.getElementById('game');
     if (!pxScale || !box) return;
-    const src = system === 'nds' ? (sideBySide ? { w: 512, h: 192 } : { w: 256, h: 384 }) : PICTURE[system];
+    const src = system === 'nds' ? (dsLayout === 'focus' ? { w: 256, h: 192 } : sideBySide ? { w: 512, h: 192 } : { w: 256, h: 384 }) : PICTURE[system];
     if (!src) return;
     const s = pxScale.sharpScale(src, { w: innerWidth, h: innerHeight }, window.devicePixelRatio || 1, { whole: true, maxLoss: wholePixels ? pxScale.WHOLE_MAX_LOSS : SHARP_LOSS });
     // (inline: EmulatorJS sets the element's classes itself)
@@ -493,6 +510,89 @@
       ? { inset: 'auto', left: '50%', top: '50%', transform: 'translate(-50%, -50%)', width: `${s.w}px`, height: `${s.h}px` }
       : { inset: '', left: '', top: '', transform: '', width: '', height: '' });
   }
+  function showDsTouch(on, manual = false) {
+    if (manual) dsTouchOverride = !!on;
+    dsTouchShown = !!on;
+    dsTouchBox.hidden = system !== 'nds' || dsLayout !== 'focus' || !dsTouchShown;
+    window.parent?.postMessage({ type: 'ds-touch', open: dsTouchShown }, location.origin);
+  }
+  function autoDsTouch(on, ms = 0) {
+    if (dsTouchOverride !== null) return;
+    clearTimeout(dsTouchTimer);
+    showDsTouch(on);
+    if (on && ms) dsTouchTimer = setTimeout(() => { if (!dsBattle) { dsTouchOverride = null; showDsTouch(false); } }, ms);
+  }
+  function setDsBattle(on) {
+    const active = !!on;
+    if (active && !dsBattle) {
+      dsTouchOverride = null;
+      autoDsTouch(true);
+    } else if (!active && dsBattle) {
+      clearTimeout(dsTouchTimer);
+      dsTouchTimer = setTimeout(() => {
+        if (!dsBattle && dsTouchOverride === null) showDsTouch(false);
+        dsTouchOverride = null;
+      }, 2500);
+    }
+    dsBattle = active;
+  }
+  function setDsPrompt() {
+    dsTouchOverride = null;
+    autoDsTouch(true, 45000);
+  }
+  function ensureDsTouchVideo() {
+    if (dsTouchVideo || system !== 'nds') return;
+    const c = gameCanvas();
+    if (!c?.captureStream) return;
+    try {
+      dsTouchVideo = document.createElement('video');
+      dsTouchVideo.muted = true;
+      dsTouchVideo.autoplay = true;
+      dsTouchVideo.playsInline = true;
+      dsTouchStream = c.captureStream(30);
+      dsTouchVideo.srcObject = dsTouchStream;
+      dsTouchBox.append(dsTouchVideo);
+      dsTouchVideo.play().catch(() => {});
+    } catch { dsTouchVideo = null; }
+  }
+  function applyDsLayout() {
+    if (system !== 'nds') return;
+    const box = document.getElementById('game');
+    const focus = dsLayout === 'focus';
+    box.classList.toggle('ds-focus', focus);
+    const c = gameCanvas();
+    const parent = c?.closest('.ejs_canvas_parent');
+    if (parent) {
+      if (focus) Object.assign(parent.style, { position: 'absolute', left: '0', top: '0', width: '100%', height: '200%' });
+      else Object.assign(parent.style, { position: '', left: '', top: '', width: '', height: '' });
+    }
+    dsTouchBox.hidden = !focus || !dsTouchShown;
+    if (focus) ensureDsTouchVideo();
+    fit();
+  }
+  function dsTouchMouse(e, type, down = false) {
+    const c = gameCanvas();
+    const r = c?.getBoundingClientRect();
+    const box = dsTouchBox.getBoundingClientRect();
+    if (!c || !r?.width || !r.height || !box.width || !box.height) return;
+    const x = Math.max(0, Math.min(1, (e.clientX - box.left) / box.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - box.top) / box.height));
+    c.dispatchEvent(new MouseEvent(type, { bubbles: true, cancelable: true, clientX: r.left + x * r.width,
+      clientY: r.top + (0.5 + y * 0.5) * r.height, buttons: down ? 1 : 0, button: 0 }));
+  }
+  dsTouchBox.addEventListener('pointerdown', (e) => {
+    if (dsLayout !== 'focus' || dsTouchBox.hidden) return;
+    e.preventDefault();
+    dsTouchBox.setPointerCapture(e.pointerId);
+    dsTouchMouse(e, 'mousemove', true);
+    dsTouchMouse(e, 'mousedown', true);
+  });
+  dsTouchBox.addEventListener('pointermove', (e) => {
+    if (dsTouchBox.hasPointerCapture(e.pointerId)) dsTouchMouse(e, 'mousemove', true);
+  });
+  const liftDsTouch = (e) => { dsTouchMouse(e, 'mouseup', false); };
+  dsTouchBox.addEventListener('pointerup', liftDsTouch);
+  dsTouchBox.addEventListener('pointercancel', liftDsTouch);
   addEventListener('resize', fit);
   // WebGL canvases without preserveDrawingBuffer read back empty outside the frame that drew them.
   // A rAF callback queued from outside a frame runs after EmulatorJS' own one in the same frame, so the
@@ -1337,12 +1437,22 @@
         skip1x = String(v); // the page's choice for 1× – fast-forward picks its own (applySkip)
         return applySkip();
       }
+      if (k === 'souldew_ds_layout' && system === 'nds' && ['tb', 'lr', 'focus'].includes(v)) {
+        dsLayout = v;
+        sideBySide = v === 'lr';
+        applyDsLayout();
+        return;
+      }
       if (/screens?_layout$/.test(k)) {
         sideBySide = /left/i.test(v);
+        if (dsLayout !== 'focus') dsLayout = sideBySide ? 'lr' : 'tb';
         fit();
       }
       E().menuOptionChanged(k, v);
     },
+    toggleTouchScreen() { showDsTouch(!dsTouchShown, true); },
+    setDsBattle,
+    setDsPrompt,
     /** Settings › "Whole pixels only" switched while playing. */
     setWholePixels(on) {
       wholePixels = !!on;
@@ -1389,6 +1499,7 @@
   window.EJS_onGameStart = () => {
     setTimeout(wakeAudio, 400);
     try { watchGl(); } catch { /* diagnostics only */ }
+    try { applyDsLayout(); } catch { /* DS layout can be restored after the core creates its canvas */ }
     syncAudio();
     setInterval(syncAudio, 250);
     // the core looked somewhere else for its save → let the app fall back to loadSave()

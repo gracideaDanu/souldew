@@ -344,7 +344,7 @@ export function GameSession({ session, mode }) {
   // list again on every reading doesn't render anew
   const [cheatGame, setCheatGame] = useState('');
   const liveRef = useRef({ entry: null, state: null }); // the live reader's game entry and state – the cheats find the bag with them
-  const [layout, setLayoutState] = useState(() => ls.get('sl-ds-layout', 'tb')); // tb | lr
+  const [layout, setLayoutState] = useState(() => ['tb', 'lr', 'focus'].includes(ls.get('sl-ds-layout', 'tb')) ? ls.get('sl-ds-layout', 'tb') : 'tb'); // stacked | side by side | focused top screen with touch popup
   // 3DS screens (shared/ctrlayout.mjs): the player page arranges them, switchable while playing
   const [layout3ds, setLayout3dsState] = useState(() => (CTR_LAYOUTS.includes(ls.get('sl-3ds-layout', 'tb')) ? ls.get('sl-3ds-layout', 'tb') : 'tb'));
   const [layoutOpen, setLayoutOpen] = useState(false);
@@ -410,6 +410,7 @@ export function GameSession({ session, mode }) {
   const speedRef = useRef(1);
   speedRef.current = speed;
   const isDs = target.system === 'nds';
+  const isB2W2 = isDs && (/^(IRE|IRD)/.test(String(target.code || '')) || /(?:black|white)\s*2|b2w2/i.test(String(target.gameId || target.name || '')));
   // Games with an IR cartridge (HeartGold/SoulSilver, Black/White 1+2) answer the main menu with
   // "A communication error has occurred" in the melonDS core once a save exists (any save, DeSmuME's too – still so in
   // the bundled melonDS 0.9.3, checked 11/2026). DeSmuME runs them fine and is the faster core for them anyway: in town
@@ -450,12 +451,14 @@ export function GameSession({ session, mode }) {
   const liveRead = useRef({ boxes: false, party: 0 }); // does the live read see the PC; party size (a full one sends a catch there)
   const noteMons = (mons) => {
     const known = mons.filter((m) => m?.key);
-    if (!monKeys.current) return void (monKeys.current = new Set(known.map((m) => m.key))); // the team we started with
+    if (!monKeys.current) { monKeys.current = new Set(known.map((m) => m.key)); return false; } // the team we started with
+    let joined = false;
     for (const m of known) {
       if (monKeys.current.has(m.key)) continue;
       monKeys.current.add(m.key);
-      if (!m.isEgg) missedTr.current.newMon(Date.now(), m.species || null); // (an egg is never a catch)
+      if (!m.isEgg) { missedTr.current.newMon(Date.now(), m.species || null); joined = true; } // (an egg is never a catch)
     }
+    return joined;
   };
   // The long-running loops below must always see the current applySnap (the doc may load later).
   const snapRef = useRef(applySnap);
@@ -662,18 +665,23 @@ export function GameSession({ session, mode }) {
       ls.set('sl-3ds-smooth', !!on);
       emu()?.setOption?.('ctr_smooth', !!on);
     },
-    layout: () => {
+    layout: (choice = null) => {
       if (target.system === '3ds') {
         // the key / menu shortcut cycles through the 3DS layouts
         return act.current.layout3ds(CTR_LAYOUTS[(CTR_LAYOUTS.indexOf(layout3ds) + 1) % CTR_LAYOUTS.length]);
       }
-      const next = layout === 'tb' ? 'lr' : 'tb';
+      const layouts = ['tb', 'lr', 'focus'];
+      const next = layouts.includes(choice) ? choice : layouts[(layouts.indexOf(layout) + 1) % layouts.length];
       setLayoutState(next);
       ls.set('sl-ds-layout', next);
       const e = emu();
-      e?.setOption?.('melonds_screen_layout', next === 'lr' ? 'Left/Right' : 'Top/Bottom');
-      e?.setOption?.('desmume_screens_layout', next === 'lr' ? 'left/right' : 'top/bottom');
+      e?.setOption?.('souldew_ds_layout', next);
+      if (!nativeOn) {
+        e?.setOption?.('melonds_screen_layout', next === 'lr' ? 'Left/Right' : 'Top/Bottom');
+        e?.setOption?.('desmume_screens_layout', next === 'lr' ? 'left/right' : 'top/bottom');
+      }
     },
+    touchScreen: () => emu()?.toggleTouchScreen?.(),
     // Fullscreen covers the whole session (game + your team), not just the game frame.
     // The whole page goes fullscreen (not just the session), so toasts, alerts and the rules drawer stay visible;
     // the session then covers the screen via .is-fs.
@@ -1239,7 +1247,8 @@ export function GameSession({ session, mode }) {
               if (ended) wildEndRef.current?.(ended);
               setDemo(!!seen && !fight);
               inBattle = !!seen;
-              noteMons([...res.party, ...(res.boxes || []), ...(res.box || [])]);
+              const joined = noteMons([...res.party, ...(res.boxes || []), ...(res.box || [])]);
+              if (joined && isB2W2) emu()?.setDsPrompt?.('catch'); // BW2 asks for a nickname on the touch screen after the catch
               liveRead.current = { boxes: Array.isArray(res.boxes) || Array.isArray(res.box), party: res.party.length }; // (Gen 1: the box chosen in the PC – where a catch with a full team goes)
               setLiveState({ status: 'live', entry: entry.name });
               if (Number.isInteger(entry.gen)) setLiveGen((g) => (g === entry.gen ? g : entry.gen));
@@ -1425,6 +1434,16 @@ export function GameSession({ session, mode }) {
     emu()?.setControls?.({ controls, pads });
   }, [phase, controlsSig]);
 
+  // DS focus layout (BW2 first): keep the game’s own touch screen available as a floating panel, and bring it forward
+  // for battles and the nickname prompt after a catch. Other menus remain one button away because the game doesn’t expose
+  // a reliable cross-version “touch screen required” signal.
+  useEffect(() => {
+    if (phase !== 'running' || !isDs) return;
+    const e = emu();
+    e?.setOption?.('souldew_ds_layout', layout);
+    e?.setDsBattle?.(!!isB2W2 && !!battle?.enemy?.species);
+  }, [phase, isDs, isB2W2, layout, battle?.enemy?.species]);
+
   // A slower computer: measured every 2 s at 1×. DeSmuME first skips every other frame's rendering once it can't hold
   // 55 fps for a while (the game itself keeps its speed and timing; stays on for this session). When the game still
   // runs clearly below full speed for ~10 s, the play view says so and what helps (lib/slowdown.mjs, issue #4: Platinum
@@ -1588,6 +1607,7 @@ export function GameSession({ session, mode }) {
   const [nativeSrc] = useState(() => {
     const q = new URLSearchParams({ system: target.system, rom: target.rom, key: target.soloKey || target.key, name: target.name, save: target.saveUrl });
     if (layout === 'lr') q.set('layout', 'left');
+    else if (layout === 'focus') q.set('layout', 'focus');
     if (wholePixels) q.set('px', 'whole');
     // (a link session's page also gets the game itself: once the session is over it goes on alone from there)
     if (target.link) {
@@ -1605,12 +1625,12 @@ export function GameSession({ session, mode }) {
     // EmulatorJS names the ROM (and its browser-side save) after the URL's last segment → make it unique per game.
     const romKey = `${hash(new TextEncoder().encode(target.key)).replace(/\D/g, '')}`;
     const romUrl = `/rom/g${romKey}.${target.system}?src=${encodeURIComponent(target.rom)}`;
-    const lay = layout === 'lr' ? '&layout=Left%2FRight&dlayout=left%2Fright' : '';
+    const lay = layout === 'lr' ? '&layout=Left%2FRight&dlayout=left%2Fright' : layout === 'focus' ? '&dsLayout=focus' : '';
     const wcore = isDs && /^(IPK|IPG|IRB|IRA|IRE|IRD)/.test(target.code || '') ? 'desmume' : '';
     return `/player.html?system=${target.system}${wcore ? `&core=${wcore}` : ''}${lay}${fullTurbo ? '' : '&fullturbo=0'}${wholePixels ? '&px=whole' : ''}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}&tap=${encodeURIComponent(t('play.tapToStart', 'Click to start'))}`;
   });
   const src = nativeOn && target.system !== '3ds' ? nativeSrc : wasmSrc;
-  const arn = target.system === '3ds' ? ctrLayoutAspect(layout3ds) : isDs ? (layout === 'lr' ? 512 / 192 : 256 / 384) : target.system === 'gba' ? 3 / 2 : 10 / 9;
+  const arn = target.system === '3ds' ? ctrLayoutAspect(layout3ds) : isDs ? (layout === 'lr' ? 512 / 192 : layout === 'focus' ? 4 / 3 : 256 / 384) : target.system === 'gba' ? 3 / 2 : 10 / 9;
   const names = isRun && doc && manifest ? getPlayers(doc, manifest) : null;
   const others = isRun && manifest ? othersOf(me, manifest) : [];
   const myLive = isRun && doc ? live(doc, me) : null;
@@ -1897,7 +1917,16 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
               <span class="tiny faint">${t('play.ctrScaleNow', 'Resolution: {n} – Settings › Play › 3DS resolution (applies to the next start).', { n: (status?.config?.ctrScale || 1) > 1 ? `${status.config.ctrScale}×` : t('set.ctrScale1', '1× (native)') })}</span>
             </div>`}
           </span>`}
-          ${isDs && btn(layout === 'lr' ? 'layoutTb' : 'layoutLr', layout === 'lr' ? t('play.layoutTb', 'Screens on top of each other') : t('play.layoutLr', 'Screens side by side'), actions.layout)}
+          ${isDs && html`<span class="layout-wrap">
+            ${btn(layout === 'lr' ? 'layoutLr' : 'layoutTb', t('play.dsLayout', 'DS screen layout'), () => setLayoutOpen(!layoutOpen), { 'aria-expanded': layoutOpen, 'aria-haspopup': 'dialog' })}
+            ${layoutOpen && html`<div class="cheat-pop layout-pop" role="dialog" aria-label=${t('play.dsLayout', 'DS screen layout')}>
+              <b class="small">${t('play.dsLayout', 'DS screen layout')}</b>
+              ${[['tb', t('play.dsLayoutTb', 'Stacked screens')], ['lr', t('play.dsLayoutLr', 'Side by side')], ['focus', t('play.dsLayoutFocus', 'Focused top + touch popup')]].map(([id, label]) => html`<button class=${`btn small ${layout === id ? 'primary' : 'ghost'}`} aria-pressed=${layout === id}
+                onClick=${() => { actions.layout(id); setLayoutOpen(false); focusGame(); }}>${label}</button>`)}
+              <span class="tiny faint">${t('play.dsFocusHint', 'In Focused mode the touch screen floats over the game. BW2 opens it automatically in battle; use Touch screen for other menus.')}</span>
+            </div>`}
+          </span>`}
+          ${isDs && layout === 'focus' && html`<button class="btn small ghost" title=${t('play.dsTouchToggle', 'Show or hide the touch screen')} onClick=${actions.touchScreen}>${t('play.dsTouchToggle', 'Touch screen')}</button>`}
           ${btn('camera', t('keys.screenshot', 'Screenshot') + hint('screenshot'), actions.screenshot)}
           <span class="cheat-wrap">
             ${btn('candy', t('cheat.title', 'Cheats'), () => setCheatOpen(!cheatOpen), { 'aria-expanded': cheatOpen, 'aria-haspopup': 'dialog' })}

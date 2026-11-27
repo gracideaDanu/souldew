@@ -1,4 +1,4 @@
-"""Move types/power/damage class for the in-battle type helper (shared/data/moves.json).
+"""Move type/power/class/effect data for the battle helper (shared/data/moves.json).
 
 Usage: python3 scripts/build-move-data.py <pokeapi data/v2/csv dir> shared/data/moves.json
 
@@ -31,17 +31,21 @@ for r in rows('moves'):
     i = int(r['id'])
     if i > MAX_MOVE:
         continue
-    cur[i] = {'type': types[int(r['type_id'])], 'power': int(r['power'] or 0), 'cls': classes.get(int(r['damage_class_id'] or 1), 'status')}
+    cur[i] = {'type': types[int(r['type_id'])], 'power': int(r['power'] or 0), 'cls': classes.get(int(r['damage_class_id'] or 1), 'status'),
+              'effect': int(r['effect_id'] or 0)}
 
 changes = sorted(
     (r for r in rows('move_changelog') if int(r['move_id']) <= MAX_MOVE),
     key=lambda r: VG_ORDER[int(r['changed_in_version_group_id'])], reverse=True)
 
 by_gen = {}
+effect_by_gen = {}
 for g in GENS:
     diff = {}
+    effect_diff = {}
     for i, m in cur.items():
         t, p = m['type'], m['power']
+        effect = m['effect']
         for r in changes:
             if int(r['move_id']) != i or VG_ORDER[int(r['changed_in_version_group_id'])] <= VG_ORDER[LAST_VG[g]]:
                 continue
@@ -49,17 +53,34 @@ for g in GENS:
                 t = types[int(r['type_id'])]
             if r['power']:
                 p = int(r['power'])
+            if r['effect_id']:
+                effect = int(r['effect_id'])
         if t != m['type'] or p != m['power']:
             diff[i] = [t, p]
+        if effect != m['effect']:
+            effect_diff[i] = effect
     by_gen[str(g)] = diff
 
+    effect_by_gen[str(g)] = effect_diff
+
+effect_text = {'en': {}, 'fr': {}}
+effect_languages = {'en': 9, 'fr': 5}
+for r in rows('move_effect_prose'):
+    lang = next((key for key, lang_id in effect_languages.items() if int(r['local_language_id']) == lang_id), None)
+    if lang:
+        effect_text[lang][int(r['move_effect_id'])] = r['short_effect']
+
 out = {
-    'meta': {'source': 'PokeAPI (github.com/PokeAPI/pokeapi data/v2/csv: moves, move_changelog, types, version_groups)', 'maxMove': MAX_MOVE,
+    'meta': {'source': 'PokeAPI (github.com/PokeAPI/pokeapi data/v2/csv: moves, move_changelog, move_effect_prose, types, version_groups)', 'maxMove': MAX_MOVE,
              'notes': 'type/power/cls are indexed by move id (newest values). byGen[g][id] = [type, power] where Gen g differs. '
-                      'Before Gen 4 the damage class follows the type, not cls.'},
+                      'effect[id] is the PokeAPI move effect group; effectByGen[g][id] overrides it where the generation differs. '
+                      'effectText uses short_effect, with English and French prose. Before Gen 4 the damage class follows the type, not cls.'},
     'type': [''] + [cur[i]['type'] if i in cur else '' for i in range(1, MAX_MOVE + 1)],
     'power': [0] + [cur[i]['power'] if i in cur else 0 for i in range(1, MAX_MOVE + 1)],
     'cls': [''] + [cur[i]['cls'] if i in cur else '' for i in range(1, MAX_MOVE + 1)],
+    'effect': [0] + [cur[i]['effect'] if i in cur else 0 for i in range(1, MAX_MOVE + 1)],
+    'effectByGen': effect_by_gen,
+    'effectText': effect_text,
     'byGen': by_gen,
 }
 with open(OUT, 'w', encoding='utf-8') as f:

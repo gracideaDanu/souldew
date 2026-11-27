@@ -56,6 +56,8 @@ const st = {
   info: null, turboAudio: 'music', switches: [], whole: q.get('px') === 'whole',
   model: q.get('model') || null, // a Game Boy game's console ('dmg' | 'cgb'): its save states only load into that model
   engine: false, // the souldew engine plays (its loaded event says so): link sessions switch in its own process
+  dsLayout: q.get('layout') === 'focus' ? 'focus' : /left/i.test(q.get('layout') || '') ? 'lr' : 'tb',
+  touchShown: false, dsBattle: false, touchOverride: null,
 };
 const waiters = { state: [], loaded: [], stepped: [], seatState: [], seatSram: [] };
 // a link session's READs (any seat's bytes – the link battle's result, shared/linkbattle.mjs) and FLUSH's every-seat saves
@@ -149,56 +151,110 @@ const u32 = (x) => new Uint8Array(new Uint32Array([x]).buffer);
 
 // ---- picture (WebGL) – the DS's two screens on top of each other as the core draws them, or side by side ----------
 const canvas = document.getElementById('screen');
+const stage = document.getElementById('stage');
+const touchWrap = document.getElementById('touch-wrap');
+const touchCanvas = document.getElementById('touch-screen');
 const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: false, alpha: false });
+const touchGl = touchCanvas.getContext('webgl2', { preserveDrawingBuffer: true, antialias: false, alpha: false });
 let uni = null;
 let tex = null;
+let touchUni = null;
+let touchTex = null;
 function initGl() {
   const vs = '#version 300 es\nin vec2 p;out vec2 uv;void main(){uv=vec2((p.x+1.)*.5,(1.-p.y)*.5);gl_Position=vec4(p,0.,1.);}';
-  // lr: the left half shows the top screen (the picture's upper half), the right half the bottom screen
-  const fs = '#version 300 es\nprecision mediump float;in vec2 uv;uniform sampler2D t;uniform bool bgra;uniform bool lr;out vec4 o;'
-    + 'void main(){vec2 c=uv;if(lr){c=uv.x<.5?vec2(uv.x*2.,uv.y*.5):vec2((uv.x-.5)*2.,.5+uv.y*.5);}vec4 x=texture(t,c);o=vec4(bgra?x.bgr:x.rgb,1.);}';
-  const sh = (type, src) => {
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    return s;
+  // 0: both screens stacked, 1: side by side, 2: top screen only, 3: the touch screen for the floating panel.
+  const fs = '#version 300 es\nprecision mediump float;in vec2 uv;uniform sampler2D t;uniform bool bgra;uniform int mode;out vec4 o;'
+    + 'void main(){vec2 c=uv;if(mode==1)c=uv.x<.5?vec2(uv.x*2.,uv.y*.5):vec2((uv.x-.5)*2.,.5+uv.y*.5);else if(mode==2)c=vec2(uv.x,uv.y*.5);else if(mode==3)c=vec2(uv.x,.5+uv.y*.5);vec4 x=texture(t,c);o=vec4(bgra?x.bgr:x.rgb,1.);}';
+  const make = (ctx) => {
+    if (!ctx) return null;
+    const sh = (type, src) => {
+      const s = ctx.createShader(type);
+      ctx.shaderSource(s, src);
+      ctx.compileShader(s);
+      return s;
+    };
+    const prog = ctx.createProgram();
+    ctx.attachShader(prog, sh(ctx.VERTEX_SHADER, vs));
+    ctx.attachShader(prog, sh(ctx.FRAGMENT_SHADER, fs));
+    ctx.linkProgram(prog);
+    ctx.useProgram(prog);
+    const buf = ctx.createBuffer();
+    ctx.bindBuffer(ctx.ARRAY_BUFFER, buf);
+    ctx.bufferData(ctx.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), ctx.STATIC_DRAW);
+    const loc = ctx.getAttribLocation(prog, 'p');
+    ctx.enableVertexAttribArray(loc);
+    ctx.vertexAttribPointer(loc, 2, ctx.FLOAT, false, 0, 0);
+    const texture = ctx.createTexture();
+    ctx.bindTexture(ctx.TEXTURE_2D, texture);
+    for (const [k, v] of [[ctx.TEXTURE_MIN_FILTER, ctx.NEAREST], [ctx.TEXTURE_MAG_FILTER, ctx.NEAREST], [ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE], [ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE]]) ctx.texParameteri(ctx.TEXTURE_2D, k, v);
+    ctx.pixelStorei(ctx.UNPACK_ALIGNMENT, 1);
+    return { texture, bgra: ctx.getUniformLocation(prog, 'bgra'), mode: ctx.getUniformLocation(prog, 'mode') };
   };
-  const prog = gl.createProgram();
-  gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
-  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
-  gl.linkProgram(prog);
-  gl.useProgram(prog);
-  const buf = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
-  const loc = gl.getAttribLocation(prog, 'p');
-  gl.enableVertexAttribArray(loc);
-  gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
-  tex = gl.createTexture();
-  gl.bindTexture(gl.TEXTURE_2D, tex);
-  for (const [k, v] of [[gl.TEXTURE_MIN_FILTER, gl.NEAREST], [gl.TEXTURE_MAG_FILTER, gl.NEAREST], [gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE]]) gl.texParameteri(gl.TEXTURE_2D, k, v);
-  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
-  uni = { bgra: gl.getUniformLocation(prog, 'bgra'), lr: gl.getUniformLocation(prog, 'lr') };
+  const main = make(gl);
+  const touch = make(touchGl);
+  if (main) { tex = main.texture; uni = { bgra: main.bgra, mode: main.mode }; }
+  if (touch) { touchTex = touch.texture; touchUni = { bgra: touch.bgra, mode: touch.mode }; }
 }
 if (gl) initGl();
 
-const sideBySide = () => SYSTEM === 'nds' && st.lr;
+const sideBySide = () => SYSTEM === 'nds' && st.dsLayout === 'lr';
+const focused = () => SYSTEM === 'nds' && st.dsLayout === 'focus';
 let pendingFrame = null;
 let lastFrame = null;
 let nextWatched = null; // WATCHED: the bytes the host sends right before a picture (Shared World's camera)
 let nextDepth = null; // DEPTH: the DS's 3D depth in the rectangles the overlay named, for the same picture
-let lastWatched = null; // (the newest of them, drawn or not – Shared World's A press checks what the game shows now)
-// the game's picture in game pixels (the DS side by side: both screens next to each other) and the whole factor it is
-// drawn at (lib/pixelscale.mjs) – the canvas holds pic × pre
+let lastWatched = null; // (the newest of them – the A press checks what the game shows now)
+// the game's picture in game pixels (lib/pixelscale.mjs): the canvas holds pic × pre
 const pic = { w: 0, h: 0, pre: 1 };
+let touchTimer = null;
+function showTouch(on, { override = false } = {}) {
+  if (override) st.touchOverride = !!on;
+  if (st.touchShown === !!on) return;
+  st.touchShown = !!on;
+  touchWrap.hidden = !st.touchShown || !focused();
+  post({ type: 'ds-touch', open: st.touchShown });
+  drawFrame();
+}
+function autoTouch(on, ms = 0) {
+  if (st.touchOverride !== null) return;
+  clearTimeout(touchTimer);
+  showTouch(on);
+  if (on && ms) touchTimer = setTimeout(() => { if (!st.dsBattle) { st.touchOverride = null; showTouch(false); } }, ms);
+}
+function setDsBattle(on) {
+  const active = !!on;
+  if (active && !st.dsBattle) {
+    st.touchOverride = null;
+    autoTouch(true);
+  } else if (!active && st.dsBattle) {
+    clearTimeout(touchTimer);
+    touchTimer = setTimeout(() => {
+      if (!st.dsBattle && st.touchOverride === null) showTouch(false);
+      st.touchOverride = null;
+    }, 2500);
+  }
+  st.dsBattle = active;
+}
+function dsPrompt() {
+  st.touchOverride = null;
+  autoTouch(true, 45000);
+}
+function upload(ctx, texture, uniforms, f, mode) {
+  if (f.fmt === 2) ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGB, f.w, f.h, 0, ctx.RGB, ctx.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
+  else ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, f.w, f.h, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, f.px);
+  ctx.uniform1i(uniforms.bgra, f.fmt === 0 ? 1 : 0);
+  ctx.uniform1i(uniforms.mode, mode);
+  ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
+}
 function drawFrame() {
   const f = pendingFrame || lastFrame;
   pendingFrame = null;
   if (!f || !gl) return;
   lastFrame = f;
   const lr = sideBySide();
+  const focus = focused();
   const cw = lr ? f.w * 2 : f.w;
-  const ch = lr ? f.h / 2 : f.h;
+  const ch = lr ? f.h / 2 : focus ? f.h / 2 : f.h;
   if (pic.w !== cw || pic.h !== ch) {
     pic.w = cw;
     pic.h = ch;
@@ -209,16 +265,21 @@ function drawFrame() {
     canvas.height = ch * pic.pre;
     gl.viewport(0, 0, canvas.width, canvas.height);
   }
-  if (f.depth) window.__world?.onDepth?.(f.depth); // (the DS's 3D depth for this picture – before its bytes, which draw it)
-  if (f.watched) window.__world?.onWatched(f.watched); // (the overlay draws for exactly this picture)
-  if (f.fmt === 2) gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, f.w, f.h, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
-  else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, f.w, f.h, 0, gl.RGBA, gl.UNSIGNED_BYTE, f.px);
-  gl.uniform1i(uni.bgra, f.fmt === 0 ? 1 : 0);
-  gl.uniform1i(uni.lr, lr ? 1 : 0);
-  gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  if (f.depth) window.__world?.onDepth?.(f.depth);
+  if (f.watched) window.__world?.onWatched(f.watched);
+  gl.bindTexture(gl.TEXTURE_2D, tex);
+  upload(gl, tex, uni, f, lr ? 1 : focus ? 2 : 0);
+  touchWrap.hidden = !focus || !st.touchShown;
+  if (focus && st.touchShown && touchGl) {
+    const w = Math.max(256, Math.round(cw * pic.pre * 0.46));
+    const h = Math.max(192, Math.round(ch * pic.pre * 0.46));
+    if (touchCanvas.width !== w || touchCanvas.height !== h) { touchCanvas.width = w; touchCanvas.height = h; }
+    touchGl.viewport(0, 0, w, h);
+    touchGl.bindTexture(touchGl.TEXTURE_2D, touchTex);
+    upload(touchGl, touchTex, touchUni, f, 3);
+  }
   streamFrame();
 }
-
 // The partners' video (captureStream) at the picture's own size, as before the sharp scaling: the bigger drawing buffer
 // would only cost upload and encoder time. Drawn only while someone watches.
 let streamCanvas = null;
@@ -233,6 +294,12 @@ function streamFrame() {
   const x = streamCanvas.getContext('2d');
   x.imageSmoothingEnabled = false; // a whole factor down: the game's pixels exactly
   x.drawImage(canvas, 0, 0, w, h);
+  if (focused() && st.touchShown) {
+    const tw = w * 0.46, th = h * 0.46, left = w * 0.50, top = h * 0.50;
+    x.fillStyle = '#f3ead2';
+    x.fillRect(left - 2, top - 2, tw + 4, th + 4);
+    x.drawImage(touchCanvas, left, top, tw, th);
+  }
 }
 function onVideo(p) {
   const v = new DataView(p.buffer, p.byteOffset, 8);
@@ -273,6 +340,8 @@ function layout() {
   const box = document.body.getBoundingClientRect();
   const src = pic.w ? pic : { w: canvas.width, h: canvas.height };
   const s = sharpScale(src, { w: box.width, h: box.height }, devicePixelRatio || 1, { whole: st.whole });
+  stage.style.width = `${s.w}px`;
+  stage.style.height = `${s.h}px`;
   canvas.style.width = `${s.w}px`;
   canvas.style.height = `${s.h}px`;
   canvas.style.imageRendering = s.smooth ? 'auto' : 'pixelated';
@@ -642,7 +711,7 @@ function ended() {
 // ---- input ------------------------------------------------------------------------------------------------------------
 // libretro joypad bits (the same numbers EmulatorJS uses, lib/controls.mjs BUTTONS.ejs)
 const BIT = { b: 0, y: 1, select: 2, start: 3, up: 4, down: 5, left: 6, right: 7, a: 8, x: 9, l: 10, r: 11 };
-const inp = { keys: 0, pad: 0, test: 0, px: 0, py: 0, touch: false };
+const inp = { keys: 0, pad: 0, test: 0, px: 0, py: 0, touch: false, touchFromOverlay: false };
 let sentInput = '';
 function sendInput() {
   const buttons = inp.keys | inp.pad | inp.test;
@@ -687,12 +756,14 @@ addEventListener('blur', () => {
   inp.keys = 0;
   inp.pad = 0;
   inp.touch = false;
+  inp.touchFromOverlay = false;
   sendInput();
 });
 
 // touch (DS): the mouse on the bottom screen – the core takes a pointer over its whole picture (-0x7fff…0x7fff), the
 // two screens on top of each other; side by side the click is mapped back onto that picture (lib/pixelscale.mjs)
 function pointer(e) {
+  if (focused()) return; // the main picture is the top screen; only the floating touch screen accepts stylus input
   const r = canvas.getBoundingClientRect();
   const { x, y } = dsTouchAt((e.clientX - r.left) / r.width, (e.clientY - r.top) / r.height, sideBySide());
   inp.px = Math.round(x * 0xfffe - 0x7fff);
@@ -700,13 +771,14 @@ function pointer(e) {
 }
 if (SYSTEM === 'nds') {
   canvas.addEventListener('pointerdown', (e) => {
+    if (focused()) return;
     canvas.setPointerCapture(e.pointerId);
     pointer(e);
     inp.touch = true;
     sendInput();
   });
   canvas.addEventListener('pointermove', (e) => {
-    if (!inp.touch) return;
+    if (!inp.touch || inp.touchFromOverlay) return;
     pointer(e);
     sendInput();
   });
@@ -717,6 +789,35 @@ if (SYSTEM === 'nds') {
   };
   canvas.addEventListener('pointerup', lift);
   canvas.addEventListener('pointercancel', lift);
+  const touchAt = (e) => {
+    const r = touchWrap.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (e.clientX - r.left) / r.width));
+    const y = Math.max(0, Math.min(1, (e.clientY - r.top) / r.height));
+    inp.px = Math.round(x * 0xfffe - 0x7fff);
+    inp.py = Math.round((0.5 + y * 0.5) * 0xfffe - 0x7fff);
+  };
+  touchWrap.addEventListener('pointerdown', (e) => {
+    if (!focused() || touchWrap.hidden) return;
+    e.preventDefault();
+    touchWrap.setPointerCapture(e.pointerId);
+    inp.touchFromOverlay = true;
+    inp.touch = true;
+    touchAt(e);
+    sendInput();
+  });
+  touchWrap.addEventListener('pointermove', (e) => {
+    if (!inp.touchFromOverlay) return;
+    touchAt(e);
+    sendInput();
+  });
+  const liftOverlay = () => {
+    if (!inp.touchFromOverlay) return;
+    inp.touchFromOverlay = false;
+    inp.touch = false;
+    sendInput();
+  };
+  touchWrap.addEventListener('pointerup', liftOverlay);
+  touchWrap.addEventListener('pointercancel', liftOverlay);
 }
 
 // Settings › Controls and › Controller (config.controls, config.pads): read when the page starts, and again whenever
@@ -1046,11 +1147,23 @@ window.__emu = {
   switches: () => st.switches.slice(),
   perf: () => ({ fps: st.fps, speed: st.hostSpeed, frames: st.hostFrame, shown: st.frames, audioIn: st.audioIn || 0, audioOn: !!audio.node, core: st.core, info: st.info, error: st.error, log: st.log.slice(-20), pacing: { core: st.core, native: true }, stream: st.streamKind || null }),
   setOption(k, v) {
+    if (k === 'souldew_ds_layout' && SYSTEM === 'nds' && ['tb', 'lr', 'focus'].includes(v)) {
+      st.dsLayout = v;
+      touchWrap.hidden = !focused() || !st.touchShown;
+      pic.w = 0;
+      pic.h = 0;
+      if (focused() && st.dsBattle && st.touchOverride === null) showTouch(true);
+      else drawFrame();
+      return;
+    }
     if (/screens?_layout$/.test(k)) {
-      st.lr = /left/i.test(v);
+      st.dsLayout = /left/i.test(v) ? 'lr' : 'tb';
       drawFrame();
     }
   },
+  toggleTouchScreen() { showTouch(!st.touchShown, { override: true }); },
+  setDsBattle,
+  setDsPrompt,
   /** Settings › "Whole pixels only" switched while playing. */
   setWholePixels(on) {
     st.whole = !!on;
@@ -1098,11 +1211,13 @@ if (!LINK_SESSION) {
       cmd(CMD.DEPTH, b);
       return true;
     },
-    /** The DS's top screen (where its 3D field is): the upper half, or the left one side by side. */
+    /** The DS's top screen (where its 3D field is): the upper half, the left one side by side, or all of Focus. */
     screen() {
       if (!st.ready) return null;
       const r = canvas.getBoundingClientRect();
-      return sideBySide() ? { left: r.left, top: r.top, width: r.width / 2, height: r.height } : { left: r.left, top: r.top, width: r.width, height: r.height / 2 };
+      return sideBySide() ? { left: r.left, top: r.top, width: r.width / 2, height: r.height }
+        : focused() ? { left: r.left, top: r.top, width: r.width, height: r.height }
+          : { left: r.left, top: r.top, width: r.width, height: r.height / 2 };
     },
     // (hidden while a seamless link session runs on this page: the Cable Club is no place for partners walking about)
     ready: () => st.ready && !st.ended && !LINK_SESSION,

@@ -25,6 +25,10 @@
   "battle.typeTwice": "gleicher Typ",
   "battle.wild": "wild",
   "battle.yourMoves": "Attacken von {mon}",
+  "battle.moveType": "Typ",
+  "battle.movePower": "Stärke",
+  "battle.moveEffect": "Effekt",
+  "battle.moveEffectUnknown": "Effekt nicht verfügbar",
   "board.alive": "lebt",
   "board.allRuns": "Alle Runs",
   "board.badges": "{n} Orden",
@@ -4547,5 +4551,11 @@
   "plus.trialLede": "Alles auf dieser Seite gehört dir bis zum {date}. Nichts verlängert sich und es gibt nichts zu kündigen – danach kehrt souldew zu seinen kostenlosen Looks zurück und deine Auswahl wartet auf dich.",
   "plus.trialOn": "souldew+ gehört 7 Tage dir",
   "plus.trialTry": "souldew+ 7 Tage kostenlos testen",
-  "plus.trialUsed": "Die kostenlose Testphase wurde für dieses Discord-Konto schon genutzt."
+  "plus.trialUsed": "Die kostenlose Testphase wurde für dieses Discord-Konto schon genutzt.",
+  "play.dsLayout": "DS-Bildschirmlayout",
+  "play.dsLayoutTb": "Bildschirme übereinander",
+  "play.dsLayoutLr": "Nebeneinander",
+  "play.dsLayoutFocus": "Hauptbildschirm + schwebender Touchscreen",
+  "play.dsFocusHint": "Im Fokusmodus schwebt der Touchscreen über dem Spiel. In BW2 wird er im Kampf automatisch geöffnet. Für andere Menüs nutzt du Touchscreen.",
+  "play.dsTouchToggle": "Touchscreen"
 }
