@@ -1163,7 +1163,7 @@ window.__emu = {
   },
   toggleTouchScreen() { showTouch(!st.touchShown, { override: true }); },
   setDsBattle,
-  setDsPrompt,
+  setDsPrompt: dsPrompt,
   /** Settings › "Whole pixels only" switched while playing. */
   setWholePixels(on) {
     st.whole = !!on;
