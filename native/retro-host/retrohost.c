@@ -25,6 +25,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "compat.h"
+#include "glhost.h"
 #include "../common/cadence.h"
 #include "../common/depth.h"
 #include "../common/ffaudio.h"
@@ -153,8 +154,21 @@ static struct ram_stream rs;
 static struct cadence cad;
 
 static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch) {
-  if (!data || !w || !h || data == RETRO_HW_FRAME_BUFFER_VALID) return; // a dupe: the last picture stays
+  if (!data || !w || !h) return; // a dupe: the last picture stays
   if (!want_frame) return;
+  if (data == RETRO_HW_FRAME_BUFFER_VALID) {
+    if (w > glhost_w() || h > glhost_h()) glhost_ensure_fbo(w, h, false, false);
+    const size_t need = 8 + (size_t)w * h * 4;
+    if (need > frame_cap) {
+      uint8_t *b = realloc(frame_buf, need);
+      if (!b) return;
+      frame_buf = b;
+      frame_cap = need;
+    }
+    if (!glhost_read(w, h, true, frame_buf + 8)) return;
+    frame_w = (int)w, frame_h = (int)h, frame_fmt = 1, frame_new = 1;
+    return;
+  }
   const int bpp = pixfmt == RETRO_PIXEL_FORMAT_XRGB8888 ? 4 : 2;
   const size_t row = (size_t)w * bpp, need = 8 + row * h;
   if (need > frame_cap) {
@@ -196,8 +210,17 @@ static void send_frame(void) {
   memcpy(frame_buf, &ww, 2);
   memcpy(frame_buf + 2, &hh, 2);
   memcpy(frame_buf + 4, &f, 4);
-  host_send(MSG_VIDEO, frame_buf, (uint32_t)(8 + (size_t)frame_w * frame_h * (frame_fmt == 0 ? 4 : 2)));
+  host_send(MSG_VIDEO, frame_buf, (uint32_t)(8 + (size_t)frame_w * frame_h * (frame_fmt == 2 ? 2 : 4)));
 }
+
+static struct retro_hw_render_callback hw;
+static bool hw_active = false;
+static bool hw_want_gl(void) {
+  const char *rm = core_option("melonds_render_mode");
+  return rm && !strcmp(rm, "opengl");
+}
+static uintptr_t hw_get_fbo(void) { return glhost_fbo(); }
+static retro_proc_address_t hw_get_proc(const char *sym) { return (retro_proc_address_t)glhost_proc(sym); }
 
 // ---- environment -------------------------------------------------------------------------------------------------
 static void core_log(enum retro_log_level level, const char *fmt, ...) {
@@ -234,8 +257,27 @@ static bool environment(unsigned cmd, void *data) {
     return true;
   }
   if (IS(cmd, RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS) || IS(cmd, RETRO_ENVIRONMENT_SET_CONTROLLER_INFO)) return true;
-  if (IS(cmd, RETRO_ENVIRONMENT_SET_HW_RENDER)) return false; // software rendering only
-  if (IS(cmd, RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER)) return false;
+  if (IS(cmd, RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER)) {
+    if (!hw_want_gl()) return false;
+    *(unsigned *)data = RETRO_HW_CONTEXT_OPENGL_CORE;
+    return true;
+  }
+  if (IS(cmd, RETRO_ENVIRONMENT_SET_HW_RENDER)) {
+    if (!hw_want_gl() || !data) return false;
+    struct retro_hw_render_callback *cb = data;
+    if (cb->context_type != RETRO_HW_CONTEXT_OPENGL_CORE && cb->context_type != RETRO_HW_CONTEXT_OPENGL) return false;
+    const unsigned maj = cb->version_major ? cb->version_major : 3;
+    const unsigned min = cb->version_major ? cb->version_minor : 2;
+    if (!glhost_init(maj, min, cb->context_type == RETRO_HW_CONTEXT_OPENGL_CORE)) {
+      host_log("OpenGL %u.%u context unavailable – falling back to software renderer", maj, min);
+      return false;
+    }
+    cb->get_current_framebuffer = hw_get_fbo;
+    cb->get_proc_address = hw_get_proc;
+    hw = *cb;
+    hw_active = true;
+    return true;
+  }
   if (IS(cmd, RETRO_ENVIRONMENT_GET_VARIABLE)) {
     struct retro_variable *v = data;
     if (!v || !v->key) return false;
@@ -403,6 +445,7 @@ static void dump_ppm(const char *path) {
   for (int i = 0; i < frame_w * frame_h; i++) {
     uint8_t rgb[3];
     if (frame_fmt == 0) rgb[0] = px[i * 4 + 2], rgb[1] = px[i * 4 + 1], rgb[2] = px[i * 4];
+    else if (frame_fmt == 1) rgb[0] = px[i * 4], rgb[1] = px[i * 4 + 1], rgb[2] = px[i * 4 + 2];
     else {
       uint16_t c;
       memcpy(&c, px + i * 2, 2);
@@ -490,6 +533,15 @@ int main(int argc, char **argv) {
     info.data = rom_data;
   }
   if (!core.load_game(&info)) host_die("the core couldn't load the game");
+  struct retro_system_av_info av;
+  memset(&av, 0, sizeof av);
+  core.get_system_av_info(&av);
+  if (hw_active) {
+    const unsigned fw = av.geometry.max_width ? av.geometry.max_width : 1024;
+    const unsigned fh = av.geometry.max_height ? av.geometry.max_height : 1536;
+    if (!glhost_ensure_fbo(fw, fh, hw.depth, hw.stencil)) host_die("failed to create OpenGL framebuffer (%ux%u)", fw, fh);
+    if (hw.context_reset) hw.context_reset();
+  }
   if (core.set_controller_port_device) core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
   load_sram();
   int state_ok = -1; // --state: -1 none, 0 not loadable (the game starts from its battery save), 1 loaded
@@ -514,9 +566,6 @@ int main(int argc, char **argv) {
   }
   ram_locate(&rs, locate, NULL);
 
-  struct retro_system_av_info av;
-  memset(&av, 0, sizeof av);
-  core.get_system_av_info(&av);
   const double fps = av.timing.fps > 1 ? av.timing.fps : 60.0;
   uint8_t *sp;
   size_t sn;

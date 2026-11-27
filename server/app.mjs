@@ -34,7 +34,7 @@ import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypte
 import { prepareUpdate, updateStamp } from './lib/ctrupdate.mjs';
 import { pickUpdate } from '../shared/ctr/update.mjs';
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS, validDsScale } from './lib/native.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem, linkUnavailable } from '../shared/link.mjs';
 import { cleanFavourites } from '../shared/favourites.mjs';
 import { cleanHandheld, cleanLaunchLook, cleanLaunchPace, cleanClearTint } from '../shared/handheld.mjs';
@@ -1066,6 +1066,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         padNav: config.padNav !== false,
         ctrRenderer: validRenderer(config.ctrRenderer),
         ctrScale: validScale(config.ctrScale),
+        dsScale: validDsScale(config.dsScale),
         ctrFfHintOff: config.ctrFfHintOff === true,
         wholePixels: config.wholePixels === true,
         skin: validSkinId(config.skin),
@@ -1093,7 +1094,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'updateCheck', 'whatsNew', 'uiScale', 'uiScaleHint', 'ctrFfHintOff']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'dsScale', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'updateCheck', 'whatsNew', 'uiScale', 'uiScaleHint', 'ctrFfHintOff']) {
       if (k in body) allowed[k] = body[k];
     }
     // the "What's new" cards: the page can only close them (the server opens them, server/lib/upgrade.mjs)
@@ -1108,6 +1109,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     }
     // the 3DS resolution (1×–3×, server/lib/ctrrenderer.mjs CTR_SCALES): applies to the next 3DS game
     if ('ctrScale' in allowed) allowed.ctrScale = validScale(allowed.ctrScale);
+    if ('dsScale' in allowed) allowed.dsScale = validDsScale(allowed.dsScale);
     // the play view's hint that the 3DS resolution holds back fast-forward (web/lib/ffhint.mjs): "Don't show again"
     if ('ctrFfHintOff' in allowed) allowed.ctrFfHintOff = allowed.ctrFfHintOff === true;
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
@@ -1889,9 +1891,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const engine = loadConfig().nativeEngine === true && ENGINE_SYSTEMS.includes(system) ? linkTool() : null;
     if (!engine && !tools.cores?.[system]) throw httpError(409, 'The fast player is missing for this system', 'nativeMissing');
     // a Game Boy game's console: Settings › "Game Boy look" – or the one a state to go on from was made on
-    const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, loadConfig().gbLook);
+    const cfg = loadConfig();
+    const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, cfg.gbLook);
     const id = await native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
-      state: state ? Buffer.from(state, 'base64') : null, model, engine });
+      state: state ? Buffer.from(state, 'base64') : null, model, engine, dsScale: validDsScale(cfg.dsScale) });
     return { id, core: nativeCoreId(system, model), model, engine: !!engine };
   });
   // the engine's link session is over: its game goes on alone in the same process (no state travels, no new player)

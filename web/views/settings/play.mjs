@@ -68,6 +68,17 @@ function CtrScaleSetting({ cfg, save }) {
   </div>`;
 }
 
+function DsScaleSetting({ cfg, save }) {
+  const value = [1, 2, 3, 4].includes(cfg.dsScale) ? cfg.dsScale : 1;
+  const labels = { 1: t('set.dsScale1', '1× (native)'), 2: '2×', 3: '3×', 4: '4×' };
+  return html`<div class="stack-s">
+    <label class="field"><span>${t('set.dsScale', 'DS 3D resolution')}</span>
+      <select value=${value} onChange=${(e) => save({ dsScale: Number(e.target.value) })}>
+        ${[1, 2, 3, 4].map((n) => html`<option value=${n}>${labels[n]}</option>`)}</select></label>
+    <span class="small faint">${t('set.dsScaleHint', 'Draws DS 3D graphics at 2×–4× internal resolution via OpenGL with sharper polygons. Applies to the next DS game you start; falls back to 1× software if OpenGL is unavailable.')}</span>
+  </div>`;
+}
+
 function GbLookSetting({ cfg, save }) {
   return html`<div class="stack-s">
     <label class="field"><span>${t('set.gbLook', 'Game Boy look')}</span>
@@ -107,6 +118,7 @@ export function PlaySection({ cfg, status, save }) {
         label=${t('set.wholePixels', 'Whole pixels only')}
         hint=${t('set.wholePixelsHint', 'Every game pixel exactly 2, 3, 4 … screen pixels big – the crispest picture, with a slim black border when the game doesn’t fill the space exactly. Only when that costs at most about 15 % of the picture; otherwise, and with this off, the picture fills the space with sharp pixels that are smoothed only at their edges.')} /><//>
       ${(nativeOn || ctr) && html`<div class="grid-2">
+        <${Item} id="ds-scale" when=${nativeOn}><${DsScaleSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="gb-look" when=${nativeOn}><${GbLookSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="ctr-scale" when=${ctr}><${CtrScaleSetting} cfg=${cfg} save=${save} /><//>
       </div>`}

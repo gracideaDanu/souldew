@@ -46,6 +46,7 @@ export const SETTINGS = [
     kw: `${TURBO} sound audio music mute crackle volume ton musik son musique sonido música suono musica` },
   { id: 'whole-pixels', section: 'play', keys: ['set.wholePixels', 'set.wholePixelsHint'], kw: `${PIC} pixel integer scaling sharp crisp blurry pixels` },
   { id: 'gb-look', section: 'play', keys: ['set.gbLook', 'set.gbLookHint'], kw: `${PIC} game boy gameboy gbc colour color palette green screen red blue yellow` },
+  { id: 'ds-scale', section: 'play', keys: ['set.dsScale', 'set.dsScaleHint'], kw: `${PIC} ds nds melonds opengl 3d resolution upscale sharp hd auflösung résolution resolución risoluzione` },
   { id: 'ctr-scale', section: 'play', keys: ['set.ctrScale', 'set.ctrScaleHint', 'set.ctrFfHint'], kw: `${PIC} 3ds resolution upscale sharp hd auflösung résolution resolución risoluzione fast-forward hint` },
   { id: 'native', section: 'play', keys: ['set.native', 'set.nativeHint'], kw: 'fast player emulator melonds mgba sameboy libretro performance speed core schneller player lecteur rapide reproductor rápido' },
   { id: 'engine', section: 'play', keys: ['set.engine', 'set.engineHint'], kw: 'souldew engine beta trade battle link cable tausch kampf échange combat intercambio combate scambio lotta' },
