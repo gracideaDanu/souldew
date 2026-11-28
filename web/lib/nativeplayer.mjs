@@ -430,8 +430,11 @@ function layout() {
   if (focused() && st.dsWide && !isNativeWide(lastFrame) && src.w && src.h) src = { w: Math.round((src.h * 16) / 9), h: src.h };
   const dpr = devicePixelRatio || 1;
   const s = sharpScale(src, { w: box.width, h: box.height }, dpr, { whole: st.whole });
-  pic.dw = Math.min(1920, Math.max(1, Math.round(s.w * dpr)));
-  pic.dh = Math.min(1080, Math.max(1, Math.round(s.h * dpr)));
+  const rw = Math.max(1, Math.round(s.w * dpr));
+  const rh = Math.max(1, Math.round(s.h * dpr));
+  const cap = Math.min(1, 2560 / Math.max(rw, rh));
+  pic.dw = Math.max(1, Math.round(rw * cap));
+  pic.dh = Math.max(1, Math.round(rh * cap));
   stage.style.width = `${s.w}px`;
   stage.style.height = `${s.h}px`;
   canvas.style.width = `${s.w}px`;
