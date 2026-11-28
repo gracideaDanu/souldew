@@ -427,6 +427,7 @@ export class TurboMixer {
     // ahead of every recorded loop. Without it (other systems, unreadable archive) everything above applies.
     this.synth = null;
     this.syn = { v: 0, t: 0, s: 0 };
+    this.dsSfx = false;
     // What the mixer before this one handed over when the core rebuilt its sound (player.html: a new AudioContext after a
     // lost graphics context – Windows restarts its GPU process now and then): its song library, and the music that played
     // last, so fast-forward after the rebuild still has music instead of starting from nothing.
@@ -550,6 +551,8 @@ export class TurboMixer {
       if (!this.synth) this.synth = new SdatSynth(this.sr, { gain: SYNTH_GAIN });
       this.synth.add(m.key, m.pack);
       this.retarget();
+    } else if (m.type === 'ds-sfx') {
+      this.dsSfx = !!m.on;
     } else if (m.type === 'rom-track') {
       if (this.rom.add(m)) {
         const w = this.romWant;
@@ -1662,6 +1665,12 @@ export class TurboMixer {
     }
     const level = (from + sy.v) / 2;
     this.synth.render(outL, outR, n, outR === outL ? level / 2 : level); // (mono out: both sides land in one)
+    if (inL && this.dsSfx && this.turbo && this.mode === 'music' && level > 0) {
+      for (let i = 0; i < n; i++) {
+        outL[i] += inL[i] * level;
+        if (outR !== outL) outR[i] += inR[i] * level;
+      }
+    }
   }
 
   /** The ROM track: always played (silently at 1× – it keeps its place), heard at its fade's level. */

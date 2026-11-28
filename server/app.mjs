@@ -34,7 +34,7 @@ import { CtrSessions, ctrTools, saveStamp, ctrInventory, redactHome, ctrEncrypte
 import { prepareUpdate, updateStamp } from './lib/ctrupdate.mjs';
 import { pickUpdate } from '../shared/ctr/update.mjs';
 import { pickRenderer, validRenderer, gpuKey, remember, validScale, scaleFor } from './lib/ctrrenderer.mjs';
-import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS } from './lib/native.mjs';
+import { NativeSessions, nativeTools, NATIVE_CORES, linkTool, MAX_SAVE, MAX_STATE, GB_LOOKS, gbModel, nativeCoreId, ENGINE_SYSTEMS, validDsScale, validGfxLook, validDsTouchMode, findSdatRange } from './lib/native.mjs';
 import { LINK_SYSTEMS, MAX_LINK_SEATS, sameLinkSystem, linkUnavailable } from '../shared/link.mjs';
 import { cleanFavourites } from '../shared/favourites.mjs';
 import { cleanHandheld, cleanLaunchLook, cleanLaunchPace, cleanClearTint } from '../shared/handheld.mjs';
@@ -1066,6 +1066,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         padNav: config.padNav !== false,
         ctrRenderer: validRenderer(config.ctrRenderer),
         ctrScale: validScale(config.ctrScale),
+        dsScale: validDsScale(config.dsScale),
+        dsWide: config.dsWide === true,
+        gfxLook: validGfxLook(config.gfxLook),
+        dsTouchMode: validDsTouchMode(config.dsTouchMode),
         ctrFfHintOff: config.ctrFfHintOff === true,
         wholePixels: config.wholePixels === true,
         skin: validSkinId(config.skin),
@@ -1093,7 +1097,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     const allowed = {};
     // No path-like keys here: emulatorPaths decides which program /launch runs, libraryFolders which folders are
     // scanned (set via /api/library/folders). Neither may be writable by a plain config POST.
-    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'updateCheck', 'whatsNew', 'uiScale', 'uiScaleHint', 'ctrFfHintOff']) {
+    for (const k of ['lang', 'onboarded', 'playerName', 'emulatorFor', 'lastRun', 'bootAnimation', 'sounds', 'shareScreen', 'shortcuts', 'controls', 'theme', 'pads', 'speedGuard', 'turboMax', 'fullTurbo', 'nativeCore', 'nativeEngine', 'gbLook', 'dsScale', 'dsWide', 'gfxLook', 'dsTouchMode', 'gpuBackend', 'gpuFallback', 'nag', 'nagOff', 'padNav', 'ctrRenderer', 'ctrScale', 'wholePixels', 'skin', 'launchAnimation', 'launchPace', 'launchClear', 'handheld', 'favourites', 'presence', 'updateCheck', 'whatsNew', 'uiScale', 'uiScaleHint', 'ctrFfHintOff']) {
       if (k in body) allowed[k] = body[k];
     }
     // the "What's new" cards: the page can only close them (the server opens them, server/lib/upgrade.mjs)
@@ -1108,6 +1112,10 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     }
     // the 3DS resolution (1×–3×, server/lib/ctrrenderer.mjs CTR_SCALES): applies to the next 3DS game
     if ('ctrScale' in allowed) allowed.ctrScale = validScale(allowed.ctrScale);
+    if ('dsScale' in allowed) allowed.dsScale = validDsScale(allowed.dsScale);
+    if ('dsWide' in allowed) allowed.dsWide = allowed.dsWide === true;
+    if ('gfxLook' in allowed) allowed.gfxLook = validGfxLook(allowed.gfxLook);
+    if ('dsTouchMode' in allowed) allowed.dsTouchMode = validDsTouchMode(allowed.dsTouchMode);
     // the play view's hint that the 3DS resolution holds back fast-forward (web/lib/ffhint.mjs): "Don't show again"
     if ('ctrFfHintOff' in allowed) allowed.ctrFfHintOff = allowed.ctrFfHintOff === true;
     // the joke license window (web/lib/nag.mjs): launch count + when it last showed, and its off switch
@@ -1885,13 +1893,17 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     // (state: the save state to go on from – the player's own console as a link session left it, docs/MULTIPLAYER.md)
     if (state != null && !b64ok(state, MAX_STATE)) throw httpError(400, 'Invalid save state', 'badSave');
     const tools = nativeTools();
-    // the souldew engine (beta): the link host plays the game (the same states and protocol); else retrohost and its core
-    const engine = loadConfig().nativeEngine === true && ENGINE_SYSTEMS.includes(system) ? linkTool() : null;
+    const cfg = loadConfig();
+    const dsScale = validDsScale(cfg.dsScale);
+    const dsWide = cfg.dsWide === true;
+    // the souldew engine (beta): the link host plays the game (the same states and protocol); else retrohost and its core.
+    // OpenGL HD 3D (dsScale > 1 or dsWide) requires retrohost + melondsds_libretro, so bypass linkhost solo mode when enabled.
+    const engine = cfg.nativeEngine === true && ENGINE_SYSTEMS.includes(system) && !(system === 'nds' && (dsScale > 1 || dsWide)) ? linkTool() : null;
     if (!engine && !tools.cores?.[system]) throw httpError(409, 'The fast player is missing for this system', 'nativeMissing');
     // a Game Boy game's console: Settings › "Game Boy look" – or the one a state to go on from was made on
-    const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, loadConfig().gbLook);
+    const model = system === 'gb' && (asked === 'dmg' || asked === 'cgb') ? asked : gbModel(system, cfg.gbLook);
     const id = await native.startNative({ rom: nativeRomPath(rom), key, system, tools, save: save ? Buffer.from(save, 'base64') : null, saveFile: saveTargetFromUrl(saveUrl),
-      state: state ? Buffer.from(state, 'base64') : null, model, engine });
+      state: state ? Buffer.from(state, 'base64') : null, model, engine, dsScale, dsWide });
     return { id, core: nativeCoreId(system, model), model, engine: !!engine };
   });
   // the engine's link session is over: its game goes on alone in the same process (no state travels, no new player)
@@ -2285,6 +2297,8 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
           if (handled !== false) return handled;
         }
         if (path === '/api/library/rom' && req.method === 'GET') {
+          const { abs, entry } = resolveId(url.searchParams.get('id'), loadConfig());
+          if (!entry) return serveFile(res, abs);
           return send(res, 200, Buffer.from(loadFile(url.searchParams.get('id'), loadConfig())));
         }
         if (path === '/api/library/rom' && req.method === 'HEAD') {
@@ -2324,6 +2338,13 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
         }
         // DS / GBA / GB native host: the same two binary channels
         if (path === '/api/native/stream' && req.method === 'GET') return native.attach(url.searchParams.get('id'), res);
+        if (path === '/api/native/sdat' && req.method === 'GET') {
+          const file = nativeRomPath(url.searchParams.get('src'));
+          const range = findSdatRange(file);
+          if (!range) return send(res, 404, { error: 'no SDAT' });
+          res.writeHead(200, { 'Content-Type': 'application/octet-stream', 'Content-Length': range.end - range.start, 'Cache-Control': 'no-cache' });
+          return createReadStream(file, { start: range.start, end: range.end - 1 }).on('error', () => res.destroy()).pipe(res);
+        }
         if (path === '/api/native/cmd' && req.method === 'POST') {
           native.send(url.searchParams.get('id'), await readRaw(req, 80 * 1024 * 1024));
           return send(res, 200, { ok: true });
@@ -2409,7 +2430,7 @@ export function startServer({ port = 7373, host = '127.0.0.1', background = true
     } catch {
       return refuse(socket, 404);
     }
-    const ws = acceptStream(req, socket);
+    const ws = acceptStream(req, socket, { window: 24 * 1024 * 1024 });
     if (ws) sessions.attachStream(id, ws);
   });
   server.on('close', () => {

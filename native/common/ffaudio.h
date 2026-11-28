@@ -20,11 +20,13 @@ struct ff_audio {
   double rate;     // stereo frames per second
   double last;     // when the last frame's sound came (host_now())
   bool turbo;
+  bool pitch_keep; // true: WSOLA normal-pitch + SFX fast-forward audio
   double k;        // the ratio in use while fast-forwarding (1 otherwise) – for the stats event
   uint32_t holes;  // times the fast-forward queue ran dry (diagnostics: the stats event's ffHoles)
 };
 
 void ffa_init(struct ff_audio *fa, double sample_rate);
+void ffa_set_pitch(struct ff_audio *fa, bool on);
 /**
  * The console's sound rate now (a GBA game switches its sound hardware to 65536 Hz after it boots – SOUNDBIAS): when it
  * differs from the one announced, the sound starts afresh at the new rate and the page hears of it (EVENT audioRate

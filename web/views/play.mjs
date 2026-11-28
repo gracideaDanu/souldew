@@ -23,6 +23,7 @@ import { RunStrip, LinkedPairs, GroupTrack, BattlePanel, RulesDrawer, useBattleP
 import { LocationSign, readHere, nextHere, areaOfHere, musicInfo, loadRomLocations, romSpeciesNow, romDataReady, romWramNow, romMaps3Now, romOwnNow, romDataNow, resetRomData } from './location.mjs';
 import { FeatureCheck, romFeatures } from '/shared/live/features.mjs';
 import { gymCapsFamily } from '/shared/routes.mjs';
+import { applyDsWideRam } from '../lib/dswide.mjs';
 import { shiftEntry } from '/shared/live/romwram.mjs';
 import { TeamGuard } from '/shared/live/teamguard.mjs';
 import { RulesTab } from './board.mjs';
@@ -93,7 +94,7 @@ async function liveTables() {
   return TABLES;
 }
 
-const SPEEDS = [1, 2, 3, 4];
+const SPEEDS = [1, 1.5, 2, 3, 4];
 // Settings › "Max" turbo step (config.turboMax): after 4× comes "as fast as this computer can" – no limit at all.
 const MAX = Infinity;
 const speedText = (s) => (s === MAX ? t('play.speedMax', 'Max') : `${s}×`);
@@ -1421,6 +1422,28 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     if (phase === 'running') emu()?.setWholePixels?.(wholePixels);
   }, [phase, wholePixels]);
+  // Settings › "Picture enhancement" (lib/nativeplayer.mjs): WebGL2 display shader, live.
+  const gfxLook = status?.config?.gfxLook || 'crisp';
+  useEffect(() => {
+    if (phase === 'running') emu()?.setGfxLook?.(gfxLook);
+  }, [phase, gfxLook]);
+  // Settings › "DS second screen (Focused mode)" (lib/nativeplayer.mjs): dynamic bottom-screen placement, live.
+  const dsTouchMode = status?.config?.dsTouchMode || 'fulldex';
+  useEffect(() => {
+    if (phase === 'running' && isDs) emu()?.setDsTouchMode?.(dsTouchMode);
+  }, [phase, isDs, dsTouchMode]);
+  // Settings › "DS 16:9 widescreen" (lib/dswide.mjs): widen Focused top screen and patch 3D projection ratio in RAM.
+  const dsWide = status?.config?.dsWide === true;
+  useEffect(() => {
+    if (phase !== 'running' || !isDs) return undefined;
+    const e = emu();
+    e?.setDsWide?.(dsWide);
+    if (nativeOn) return undefined;
+    if (layout === 'focus') applyDsWideRam(e, target.code, dsWide);
+    if (!dsWide || layout !== 'focus') return undefined;
+    const id = setInterval(() => applyDsWideRam(emu(), target.code, true), 500);
+    return () => clearInterval(id);
+  }, [phase, isDs, nativeOn, layout, dsWide]);
 
   // Settings › Controls and › Controller: the frame reads them when it starts – a change while the game runs (in the
   // corner, with Settings open next to it) is handed over right away. Before, it only applied to the next game start,
@@ -1607,6 +1630,9 @@ export function GameSession({ session, mode }) {
     if (layout === 'lr') q.set('layout', 'left');
     else if (layout === 'focus') q.set('layout', 'focus');
     if (wholePixels) q.set('px', 'whole');
+    if (dsWide) q.set('wide', '1');
+    if (gfxLook && gfxLook !== 'crisp') q.set('look', gfxLook);
+    if (dsTouchMode && dsTouchMode !== 'fulldex') q.set('touch', dsTouchMode);
     // (a link session's page also gets the game itself: once the session is over it goes on alone from there)
     if (target.link) {
       q.set('link', '1');
@@ -1623,12 +1649,12 @@ export function GameSession({ session, mode }) {
     // EmulatorJS names the ROM (and its browser-side save) after the URL's last segment → make it unique per game.
     const romKey = `${hash(new TextEncoder().encode(target.key)).replace(/\D/g, '')}`;
     const romUrl = `/rom/g${romKey}.${target.system}?src=${encodeURIComponent(target.rom)}`;
-    const lay = layout === 'lr' ? '&layout=Left%2FRight&dlayout=left%2Fright' : layout === 'focus' ? '&dsLayout=focus' : '';
+    const lay = layout === 'lr' ? '&layout=Left%2FRight&dlayout=left%2Fright' : layout === 'focus' ? `&dsLayout=focus${dsWide ? '&wide=1' : ''}` : '';
     const wcore = isDs && /^(IPK|IPG|IRB|IRA|IRE|IRD)/.test(target.code || '') ? 'desmume' : '';
     return `/player.html?system=${target.system}${wcore ? `&core=${wcore}` : ''}${lay}${fullTurbo ? '' : '&fullturbo=0'}${wholePixels ? '&px=whole' : ''}&rom=${encodeURIComponent(romUrl)}&name=${encodeURIComponent(target.name)}&save=${encodeURIComponent(target.saveUrl)}&tap=${encodeURIComponent(t('play.tapToStart', 'Click to start'))}`;
   });
   const src = nativeOn && target.system !== '3ds' ? nativeSrc : wasmSrc;
-  const arn = target.system === '3ds' ? ctrLayoutAspect(layout3ds) : isDs ? (layout === 'lr' ? 512 / 192 : layout === 'focus' ? 4 / 3 : 256 / 384) : target.system === 'gba' ? 3 / 2 : 10 / 9;
+  const arn = target.system === '3ds' ? ctrLayoutAspect(layout3ds) : isDs ? (layout === 'lr' ? 512 / 192 : layout === 'focus' ? (dsWide ? 16 / 9 : 4 / 3) : 256 / 384) : target.system === 'gba' ? 3 / 2 : 10 / 9;
   const names = isRun && doc && manifest ? getPlayers(doc, manifest) : null;
   const others = isRun && manifest ? othersOf(me, manifest) : [];
   const myLive = isRun && doc ? live(doc, me) : null;
@@ -1949,6 +1975,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
               <label class="turbo-audio" title=${t('play.turboAudioHint', 'What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. Where souldew has no music of its own yet (a song not yet heard at normal speed), you hear the sped-up original. “Sped-up original” plays the game’s own sound, faster and higher.')}>
                 <span class="tiny">${t('play.turboAudio', 'Turbo audio')}</span>
                 <select value=${turboAudio} onChange=${(e) => actions.turboAudio(e.target.value)}>
+                  <option value="pitch">${t('play.turboAudioPitch', 'Normal pitch + SFX')}</option>
                   <option value="music">${t('play.turboAudioMusic', 'Music continues')}</option>
                   <option value="mute">${t('play.turboAudioMute', 'Mute')}</option>
                   <option value="original" title=${t('play.turboAudioOriginalHint', 'The game’s own sound, sped up with it – music and effects play faster and higher.')}>${t('play.turboAudioOriginal', 'Sped-up original')}</option>

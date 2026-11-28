@@ -6,7 +6,7 @@ import { Item, Group, Check, Elsewhere } from './parts.mjs';
 import { LaunchSetting } from './launch.mjs';
 
 /** Turbo audio: kept in this browser profile (the game's sound menu and Settings show the same value). */
-export const TURBO_AUDIO = ['music', 'mute', 'original', 'plain'];
+export const TURBO_AUDIO = ['pitch', 'music', 'mute', 'original', 'plain'];
 const TURBO_AUDIO_KEY = 'sl-turbo-audio';
 /** Fired on window when either place changes it – a game running in the corner switches at once. */
 export const TURBO_AUDIO_EVENT = 'sl-turbo-audio';
@@ -40,6 +40,7 @@ function TurboAudioSetting() {
   return html`<div class="stack-s">
     <div class="grid-2"><label class="field"><span>${t('play.turboAudio', 'Turbo audio')}</span>
       <select value=${mode} onChange=${(e) => { setMode(e.target.value); writeTurboAudio(e.target.value); }}>
+        <option value="pitch">${t('play.turboAudioPitch', 'Normal pitch + SFX')}</option>
         <option value="music">${t('play.turboAudioMusic', 'Music continues')}</option>
         <option value="mute">${t('play.turboAudioMute', 'Mute')}</option>
         <option value="original">${t('play.turboAudioOriginal', 'Sped-up original')}</option>
@@ -65,6 +66,46 @@ function CtrScaleSetting({ cfg, save }) {
     <${Check} checked=${cfg.ctrFfHintOff !== true} onChange=${(v) => save({ ctrFfHintOff: !v })}
       label=${t('set.ctrFfHint', 'Tell me when it slows down fast-forward')}
       hint=${t('set.ctrFfHintHint', 'On some graphics cards fast-forward at 2× or 3× stays well below the speed you pick – the play view then says so, at most once each time souldew starts.')} />
+  </div>`;
+}
+
+function GfxLookSetting({ cfg, save }) {
+  const value = ['crisp', 'smooth', 'xbr', 'scanlines', 'lcd'].includes(cfg.gfxLook) ? cfg.gfxLook : 'crisp';
+  return html`<div class="stack-s">
+    <label class="field"><span>${t('set.gfxLook', 'Picture enhancement')}</span>
+      <select value=${value} onChange=${(e) => save({ gfxLook: e.target.value })}>
+        <option value="crisp">${t('set.gfxLookCrisp', 'Crisp pixels (default)')}</option>
+        <option value="smooth">${t('set.gfxLookSmooth', 'Smooth HD + vibrant')}</option>
+        <option value="xbr">${t('set.gfxLookXbr', 'HD sprite smoothing')}</option>
+        <option value="scanlines">${t('set.gfxLookScanlines', 'Scanlines')}</option>
+        <option value="lcd">${t('set.gfxLookLcd', 'LCD pixel grid')}</option>
+      </select></label>
+    <span class="small faint">${t('set.gfxLookHint', 'Applies a WebGL2 display shader in the fast player (switches live while playing): smooth HD scaling with vibrancy, edge-aware sprite smoothing, scanlines, or an LCD pixel grid.')}</span>
+  </div>`;
+}
+
+function DsScaleSetting({ cfg, save }) {
+  const value = [1, 2, 3, 4, 6].includes(cfg.dsScale) ? cfg.dsScale : 1;
+  const labels = { 1: t('set.dsScale1', '1× (native)'), 2: '2×', 3: '3×', 4: '4× (720p)', 6: '6× (1080p)' };
+  return html`<div class="stack-s">
+    <label class="field"><span>${t('set.dsScale', 'DS 3D resolution')}</span>
+      <select value=${value} onChange=${(e) => save({ dsScale: Number(e.target.value) })}>
+        ${[1, 2, 3, 4, 6].map((n) => html`<option value=${n}>${labels[n]}</option>`)}</select></label>
+    <span class="small faint">${t('set.dsScaleHint', 'Draws DS 3D graphics at 2×–6× internal resolution via OpenGL with sharper polygons (3×–6× recommended for HD). Applies to the next DS game you start; falls back to 1× software if OpenGL is unavailable.')}</span>
+  </div>`;
+}
+
+function DsTouchModeSetting({ cfg, save }) {
+  const value = ['fulldex', 'dock', 'corner', 'center'].includes(cfg.dsTouchMode) ? cfg.dsTouchMode : 'fulldex';
+  return html`<div class="stack-s">
+    <label class="field"><span>${t('set.dsTouchMode', 'DS second screen (Focused mode)')}</span>
+      <select value=${value} onChange=${(e) => save({ dsTouchMode: e.target.value })}>
+        <option value="fulldex">${t('set.dsTouchFulldex', 'FullDex dynamic (large menus, corner battle)')}</option>
+        <option value="dock">${t('set.dsTouchDock', 'Side-by-side dock when open')}</option>
+        <option value="corner">${t('set.dsTouchCorner', 'Compact corner overlay')}</option>
+        <option value="center">${t('set.dsTouchCenter', 'Large centered overlay')}</option>
+      </select></label>
+    <span class="small faint">${t('set.dsTouchModeHint', 'Controls how the DS bottom screen appears in Focused mode when you open a menu, Bag, Party, PC, keyboard, or enter a battle (switches live while playing).')}</span>
   </div>`;
 }
 
@@ -106,7 +147,13 @@ export function PlaySection({ cfg, status, save }) {
       <${Item} id="whole-pixels"><${Check} checked=${cfg.wholePixels === true} onChange=${(v) => save({ wholePixels: v })}
         label=${t('set.wholePixels', 'Whole pixels only')}
         hint=${t('set.wholePixelsHint', 'Every game pixel exactly 2, 3, 4 … screen pixels big – the crispest picture, with a slim black border when the game doesn’t fill the space exactly. Only when that costs at most about 15 % of the picture; otherwise, and with this off, the picture fills the space with sharp pixels that are smoothed only at their edges.')} /><//>
+      <${Item} id="ds-wide"><${Check} checked=${cfg.dsWide === true} onChange=${(v) => save({ dsWide: v })}
+        label=${t('set.dsWide', 'DS 16:9 widescreen (Focused mode)')}
+        hint=${t('set.dsWideHint', 'Widens the DS top screen to 16:9 in Focused layout and patches the 3D camera projection in supported Pokémon games (Black/White 1 & 2, HeartGold/SoulSilver, Platinum) so 3D scenes render in true widescreen.')} /><//>
       ${(nativeOn || ctr) && html`<div class="grid-2">
+        <${Item} id="ds-scale" when=${nativeOn}><${DsScaleSetting} cfg=${cfg} save=${save} /><//>
+        <${Item} id="ds-touch-mode" when=${nativeOn}><${DsTouchModeSetting} cfg=${cfg} save=${save} /><//>
+        <${Item} id="gfx-look" when=${nativeOn}><${GfxLookSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="gb-look" when=${nativeOn}><${GbLookSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="ctr-scale" when=${ctr}><${CtrScaleSetting} cfg=${cfg} save=${save} /><//>
       </div>`}

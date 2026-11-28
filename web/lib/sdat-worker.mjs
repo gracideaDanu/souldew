@@ -2,7 +2,7 @@
 // the turbo mixer's synthesizer. Messages in: { type: 'rom', url } once, { type: 'pack', key, id } per song,
 // { type: 'reset' } when the mixer was rebuilt. Out: { type: 'ready', seqs } / { type: 'none', why },
 // { type: 'pack', key, pack } – samples the mixer already got are sent as { id } only.
-import { findSdat, songPack } from './sdat.mjs';
+import { findSdat, parseSdat, songPack } from './sdat.mjs';
 
 let sdat = null;
 const cache = new Map(); // decoded samples, per wave archive and index
@@ -11,10 +11,18 @@ let sent = new WeakSet(); // samples the current mixer has
 self.onmessage = async (e) => {
   const m = e.data || {};
   try {
-    if (m.type === 'rom') {
-      const res = await fetch(m.url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const rom = new Uint8Array(await res.arrayBuffer());
+    if (m.type === 'sdat-buf') {
+      sdat = { ...parseSdat(new Uint8Array(m.buf)), path: 'sdat' };
+      self.postMessage({ type: 'ready', seqs: sdat.seqs.length, path: sdat.path });
+    } else if (m.type === 'rom' || m.type === 'rom-buf') {
+      let rom;
+      if (m.type === 'rom-buf') {
+        rom = new Uint8Array(m.buf);
+      } else {
+        const res = await fetch(m.url, { headers: { 'x-soullink': '1' } });
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        rom = new Uint8Array(await res.arrayBuffer());
+      }
       const found = findSdat(rom);
       if (!found) return self.postMessage({ type: 'none', why: 'no SDAT' });
       // keep only the archive: the rest of the ROM can go

@@ -175,8 +175,8 @@ function buildNds() {
   const melon = source('melonds');
   applyPatches(melon, 'melonds-patch');
   const build = join(src, `build-${plat}`);
-  // no OpenGL (the page draws the picture), no Wi-Fi (souldew never goes online through the core), the JIT on
-  run('cmake', [...cmakeTarget(), '-DENABLE_OPENGL=OFF', '-DENABLE_JIT=ON', '-DENABLE_LTO_RELEASE=OFF', '-DBUILD_TESTING=OFF', '-DTRACY_ENABLE=OFF',
+  // OpenGL enabled for HD 3D resolution (falls back to software when dsScale is 1 or GL is unavailable)
+  run('cmake', [...cmakeTarget(), '-DENABLE_OPENGL=ON', '-DENABLE_JIT=ON', '-DENABLE_LTO_RELEASE=OFF', '-DBUILD_TESTING=OFF', '-DTRACY_ENABLE=OFF',
     `-DFETCHCONTENT_SOURCE_DIR_MELONDS=${melon}`, '-S', src, '-B', build]);
   run('cmake', ['--build', build, '--parallel', jobs]);
   copyFileSync(join(build, 'src', 'libretro', SOURCES.nds.file), join(out, SOURCES.nds.file));
@@ -340,7 +340,7 @@ const COMMON_FLAGS = ['-Wno-unused-function'];
 
 function buildHost() {
   const exe = join(out, HOST);
-  const libs = os === 'linux' ? ['-ldl', '-lpthread', '-lm'] : win ? ['-static', '-lm'] : [];
+  const libs = os === 'linux' ? ['-ldl', '-lpthread', '-lm'] : win ? ['-static', '-lopengl32', '-lgdi32', '-lm'] : ['-framework', 'OpenGL'];
   const flags = os === 'darwin' ? [`-arch`, arch === 'arm64' ? 'arm64' : 'x86_64', '-mmacosx-version-min=11.0'] : [];
   run(cc, ['-O2', '-Wall', ...COMMON_FLAGS, ...flags, '-I', join(root, 'native', 'ctr-host'), '-o', exe, join(root, 'native', 'retro-host', 'retrohost.c'), ...COMMON, ...libs]);
   if (!win) chmodSync(exe, 0o755);

@@ -52,20 +52,28 @@ export function frameDiff(a, b) {
  */
 export function sampleNativeFrame(f) {
   if (!f || f.w < SAMPLE_W || f.h < SAMPLE_H * 2 || !f.px) return null;
-  const halfH = Math.floor(f.h / 2);
-  const bpp = f.fmt === 2 ? 2 : 4;
+  const compact = f.w >= 342 * 3 && f.h > 192 && f.h < Math.round((f.w * 384) / 342) - 4;
+  const topH = compact ? f.h - 192 : Math.floor(f.h / 2);
+  const botH = compact ? 192 : topH;
+  const is565 = f.fmt === 2 || f.fmt === 4;
+  const bottomUp = f.fmt === 3 || f.fmt === 4;
+  const bpp = is565 ? 2 : 4;
   if (f.px.length < f.w * f.h * bpp) return null;
 
+  const wide = compact || (f.w / topH) > 1.5;
+  const xStart = compact ? 0 : (wide ? Math.floor((f.w * 43) / 342) : 0);
+  const xSpan = compact ? 256 : (wide ? Math.floor((f.w * 256) / 342) : f.w);
   const top = new Uint8Array(SAMPLE_LEN);
   const bot = new Uint8Array(SAMPLE_LEN);
-  const sampleHalf = (yOffset, out) => {
+  const sampleHalf = (yOffset, srcH, out, cropCenter) => {
     let di = 0;
     for (let sy = 0; sy < SAMPLE_H; sy += 1) {
-      const y = yOffset + Math.floor(((sy + 0.5) * halfH) / SAMPLE_H);
+      const y0 = yOffset + Math.floor(((sy + 0.5) * srcH) / SAMPLE_H);
+      const y = bottomUp ? f.h - 1 - y0 : y0;
       for (let sx = 0; sx < SAMPLE_W; sx += 1) {
-        const x = Math.floor(((sx + 0.5) * f.w) / SAMPLE_W);
+        const x = (cropCenter ? xStart : 0) + Math.floor(((sx + 0.5) * (cropCenter ? xSpan : f.w)) / SAMPLE_W);
         const idx = (y * f.w + x) * bpp;
-        if (f.fmt === 2) {
+        if (is565) {
           const v = f.px[idx] | (f.px[idx + 1] << 8);
           out[di] = Math.round(((v >> 11) & 31) * 255 / 31);
           out[di + 1] = Math.round(((v >> 5) & 63) * 255 / 63);
@@ -83,8 +91,8 @@ export function sampleNativeFrame(f) {
       }
     }
   };
-  sampleHalf(0, top);
-  sampleHalf(halfH, bot);
+  sampleHalf(0, topH, top, false);
+  sampleHalf(topH, botH, bot, true);
   return { top, bot };
 }
 
@@ -92,7 +100,7 @@ export function sampleNativeFrame(f) {
  * Stateful controller for auto-showing/hiding the floating DS touch screen in Focused mode.
  */
 export class DsTouchWatch {
-  constructor({ idleHideMs = 350, baselineHideMs = 150, battleHideMs = 500, promptMs = 45000, walkLearnTicks = 12 } = {}) {
+  constructor({ idleHideMs = 0, baselineHideMs = 0, battleHideMs = 50, promptMs = 45000, walkLearnTicks = 12 } = {}) {
     this.idleHideMs = idleHideMs;
     this.baselineHideMs = baselineHideMs;
     this.battleHideMs = battleHideMs;

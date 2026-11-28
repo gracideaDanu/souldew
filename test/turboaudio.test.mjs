@@ -1624,3 +1624,39 @@ test('3DS own fast-forward sound: the game’s own sound goes on – no loop of 
   assert.ok(off(out, (i) => out.sped[i]) < 1e-6, 'the host’s sped-up sound, sample for sample');
   assert.equal(m.carry, null, 'no loop found in the fast-forward recording');
 });
+
+test('DS dsSfx at 1.5x handles silent (all-zero) SFX blocks without crashing and mixes non-zero SFX over synth', () => {
+  const m = new TurboMixer(SR, { seconds: 10 });
+  m.synth = {
+    cur: { key: 'm1104' },
+    has: (k) => k === 'm1104',
+    song: () => {},
+    render(outL, outR, n, level) {
+      for (let i = 0; i < n; i++) {
+        outL[i] += 0.25 * level;
+        if (outR !== outL) outR[i] += 0.25 * level;
+      }
+    },
+  };
+  m.command({ type: 'mode', mode: 'music' });
+  m.command({ type: 'song', key: 'm1104' });
+  m.command({ type: 'ds-sfx', on: true });
+  m.command({ type: 'speed', ratio: 1.5 });
+
+  const zeros = new Float32Array(BLOCK);
+  const oL = new Float32Array(BLOCK);
+  const oR = new Float32Array(BLOCK);
+  for (let b = 0; b < 10; b++) {
+    oL.fill(0);
+    oR.fill(0);
+    m.process(zeros, zeros, oL, oR, BLOCK);
+  }
+  assert.ok(oL[BLOCK - 1] > 0.2, `synth continues playing on silent SFX blocks (${oL[BLOCK - 1]})`);
+
+  const sfx = new Float32Array(BLOCK).fill(0.4);
+  oL.fill(0);
+  oR.fill(0);
+  m.process(sfx, sfx, oL, oR, BLOCK);
+  assert.ok(oL[BLOCK - 1] > 0.6, `non-zero SFX mixes on top of synth (${oL[BLOCK - 1]})`);
+});
+

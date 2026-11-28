@@ -50,17 +50,8 @@ test('DsTouchWatch stays hidden on dark overworld and opens on menu/keyboard', (
   assert.equal(w.tick(top, menu, { now: 1500 }), false);
   assert.equal(w.tick(top, menu, { now: 1600 }), true);
 
-  // Brief 250 ms black fade between menus does not hide
-  assert.equal(w.tick(top, dark, { now: 1700 }), true);
-  assert.equal(w.tick(top, dark, { now: 1950 }), true);
-
-  // Returning to menu keeps it open
-  assert.equal(w.tick(top, menu, { now: 2050 }), true);
-
-  // Closing menu (dark for >= 350 ms) hides it
-  assert.equal(w.tick(top, dark, { now: 2200 }), true);
-  assert.equal(w.tick(top, dark, { now: 2549 }), true);
-  assert.equal(w.tick(top, dark, { now: 2550 }), false);
+  // Closing menu (dark frame) hides immediately (idleHideMs = 0)
+  assert.equal(w.tick(top, dark, { now: 1700 }), false);
 });
 
 test('DsTouchWatch opens on first active frame after X menu button is pressed', () => {
@@ -98,11 +89,9 @@ test('DsTouchWatch learns non-dark idle baseline (C-Gear ON / Poketch) while wal
   t += 250;
   assert.equal(w.tick(makePattern(42, 50, 140), menu, { now: t }), true);
 
-  // Returning to C-Gear baseline -> hides after baselineHideMs (150 ms)
+  // Returning to C-Gear baseline -> hides immediately (baselineHideMs = 0)
   t += 100;
-  assert.equal(w.tick(makePattern(43, 50, 140), cgear, { now: t }), true);
-  t += 150;
-  assert.equal(w.tick(makePattern(44, 50, 140), cgear, { now: t }), false);
+  assert.equal(w.tick(makePattern(43, 50, 140), cgear, { now: t }), false);
 });
 
 test('DsTouchWatch respects battle grace period, touching state, and manual override', () => {
@@ -114,18 +103,16 @@ test('DsTouchWatch respects battle grace period, touching state, and manual over
   assert.equal(w.setBattle(true, 1000), true);
   assert.equal(w.tick(top, dark, { now: 1100 }), true);
   assert.equal(w.setBattle(false, 2000), true);
-  assert.equal(w.tick(top, dark, { now: 2200 }), true);
-  assert.equal(w.tick(top, dark, { now: 2499 }), true);
-  // battleHideMs (500 ms) does not stack on top of idleHideMs (350 ms)
-  assert.equal(w.tick(top, dark, { now: 2550 }), false);
+  assert.equal(w.tick(top, dark, { now: 2040 }), true);
+  // battleHideMs (50 ms) hides once elapsed
+  assert.equal(w.tick(top, dark, { now: 2060 }), false);
 
   // Never auto-hide while touching
   w.tick(top, menu, { now: 6000 });
   assert.equal(w.tick(top, menu, { now: 6100 }), true);
   assert.equal(w.tick(top, dark, { now: 6200, touching: true }), true);
   assert.equal(w.tick(top, dark, { now: 7000, touching: true }), true);
-  assert.equal(w.tick(top, dark, { now: 7100, touching: false }), true);
-  assert.equal(w.tick(top, dark, { now: 7450, touching: false }), false);
+  assert.equal(w.tick(top, dark, { now: 7100, touching: false }), false);
 
   // Manual hide stays hidden on same screen, clears when screen changes significantly
   w.tick(top, menu, { now: 10000 });
@@ -191,4 +178,33 @@ test('sampleNativeFrame samples BGRA, RGBA, and RGB565 stacked DS frames', () =>
   assert.equal(s2.top[1], 0);
   assert.equal(s2.bot[0], 0);
   assert.equal(s2.bot[1], 255);
+
+  // fmt 3 (bottom-up RGBA from OpenGL): row 0 in buffer is bottom of bottom screen
+  const bottomUp = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 4;
+      if (y < h / 2) { bottomUp[i] = 10; bottomUp[i + 1] = 20; bottomUp[i + 2] = 230; bottomUp[i + 3] = 255; }
+      else { bottomUp[i] = 220; bottomUp[i + 1] = 30; bottomUp[i + 2] = 40; bottomUp[i + 3] = 255; }
+    }
+  }
+  const s3 = sampleNativeFrame({ w, h, fmt: 3, px: bottomUp });
+  assert.equal(s3.top[0], 220);
+  assert.equal(s3.bot[2], 230);
+
+  // fmt 4 (bottom-up RGB565 from OpenGL): row 0 in buffer is bottom of bottom screen
+  const bottomUp565 = new Uint8Array(w * h * 2);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 2;
+      const val = y < h / 2 ? 0x07e0 : 0xf800; // bottom green, top red
+      bottomUp565[i] = val & 0xff;
+      bottomUp565[i + 1] = val >> 8;
+    }
+  }
+  const s4 = sampleNativeFrame({ w, h, fmt: 4, px: bottomUp565 });
+  assert.equal(s4.top[0], 255);
+  assert.equal(s4.top[1], 0);
+  assert.equal(s4.bot[0], 0);
+  assert.equal(s4.bot[1], 255);
 });

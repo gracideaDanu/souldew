@@ -121,7 +121,7 @@ export function musicInfo(entry, read, ctx = {}) {
     load();
     return null;
   }
-  return readMusicInfo(MAPS, entry, read, ctx);
+  return readMusicInfo(MAPS, entry, read, { rom: ROMLOC.data, ...ctx });
 }
 
 /**

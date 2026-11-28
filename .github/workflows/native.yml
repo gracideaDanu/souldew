@@ -43,7 +43,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: tools/native/linux-x64
-          key: native-linux-x64-${{ hashFiles('native/retro-host/**', 'native/link-host/**', 'native/ctr-host/compat.h', 'native/ctr-host/libretro.h', 'native/ctr-host/ffsound.h', 'scripts/build-native.mjs') }}
+          key: native-linux-x64-${{ hashFiles('native/retro-host/**', 'native/link-host/**', 'native/common/**', 'native/melonds-patch/**', 'native/melonds-ds-patch/**', 'native/ctr-host/compat.h', 'native/ctr-host/libretro.h', 'native/ctr-host/ffsound.h', 'scripts/build-native.mjs') }}
       - name: Tools
         if: steps.cache.outputs.cache-hit != 'true'
         run: |
@@ -98,7 +98,7 @@ jobs:
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
         with:
           path: tools/native/win32-x64
-          key: native-win32-x64-${{ hashFiles('native/retro-host/**', 'native/link-host/**', 'native/ctr-host/compat.h', 'native/ctr-host/libretro.h', 'native/ctr-host/ffsound.h', 'scripts/build-native.mjs') }}
+          key: native-win32-x64-${{ hashFiles('native/retro-host/**', 'native/link-host/**', 'native/common/**', 'native/melonds-patch/**', 'native/melonds-ds-patch/**', 'native/ctr-host/compat.h', 'native/ctr-host/libretro.h', 'native/ctr-host/ffsound.h', 'scripts/build-native.mjs') }}
       - name: Tools
         # only the 64-bit MinGW toolchain (the mingw-w64 metapackage also pulls the 32-bit one: ~290 MB from a mirror
         # that has been crawling: 93 MB took 17 min on 18.11.), with retries and timeouts so a stalled mirror fails over instead of hanging the job
