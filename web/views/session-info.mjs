@@ -655,10 +655,11 @@ function OutHelp({ mon, foes, typesOf, movesOf, moveDetails, gen, myMovesFold = 
       <ul class="bt-moves" id=${myListId} hidden=${!myOpen}>
         ${myOpen && myMoves.map(({ id, info }) => {
           const details = moveDetails(id, info);
-          return html`<li key=${id} title=${details.tip}>
+          const mults = foes.map(({ f, types }) => ({ f, m: info.cls === 'status' || !info.type ? null : effectiveness(info.type, types, gen) }));
+          const superHit = mults.some(({ m }) => m > 1);
+          return html`<li key=${id} class=${superHit ? 'super' : undefined} title=${details.tip}>
             ${moveMain(info.type, moveName(id), details.inline)}
-            <span class="bt-mults">${foes.map(({ f, types }) => {
-              const m = info.cls === 'status' || !info.type ? null : effectiveness(info.type, types, gen);
+            <span class="bt-mults">${mults.map(({ f, m }) => {
               const vs = many ? t('battle.vsMon', 'against {mon}', { mon: speciesName(f.species) }) : undefined;
               return m === null ? html`<span class="mult x1" title=${vs}>${t('fx.status', 'status')}</span>` : html`<span class=${`mult ${multClass(m)}`} title=${vs}>${multText(m)}${many ? '' : ` ${multLabel(m)}`}</span>`;
             })}</span>
@@ -673,7 +674,7 @@ function OutHelp({ mon, foes, typesOf, movesOf, moveDetails, gen, myMovesFold = 
       <ul class="bt-moves" id=${listId} hidden=${!open}>
         ${open && incoming.map((x) => {
           const details = x.info ? moveDetails(x.id, x.info) : null;
-          return html`<li key=${x.key} title=${details?.tip || undefined}>
+          return html`<li key=${x.key} class=${x.m > 1 ? 'super foe' : undefined} title=${details?.tip || undefined}>
             ${moveMain(x.type, `${many ? `${speciesName(x.by.species)}: ` : ''}${x.label}`, details?.inline)}
             ${x.m === null ? html`<span class="mult x1">${t('fx.status', 'status')}</span>` : html`<span class=${`mult ${multClass(x.m)} foe`}>${multText(x.m)} ${multLabel(x.m)}</span>`}
           </li>`;

@@ -68,8 +68,10 @@ test('battle moves show Power (phy/spec) inline on the same row and tuck descrip
   assert.match(panel, /const moveDetails = \(id, info\) => \{/);
   assert.match(panel, /inline: clsShort \? `\| \$\{info\.power > 0 \? info\.power : '—'\} \(\$\{clsShort\}\)` : ''/);
   assert.match(panel, /tip: `\$\{meta\}\\n\$\{desc\}`/);
-  assert.match(panel, /<li key=\$\{id\} title=\$\{details\.tip\}>/);
-  assert.match(panel, /<li key=\$\{x\.key\} title=\$\{details\?\.tip \|\| undefined\}>/);
+  assert.match(panel, /<li key=\$\{id\} class=\$\{superHit \? 'super' : undefined\} title=\$\{details\.tip\}>/);
+  assert.match(panel, /<li key=\$\{x\.key\} class=\$\{x\.m > 1 \? 'super foe' : undefined\} title=\$\{details\?\.tip \|\| undefined\}>/);
+  assert.match(css, /\.bt-moves li\.super \{ background:/);
+  assert.match(css, /\.bt-moves li\.super\.foe \{ background:/);
   assert.match(panel, /<span class="bt-move-main">/);
   assert.match(panel, /<span class="bt-move-stat num">\$\{inline\}<\/span>/);
   const rowSize = Number(css.match(/\.bt-moves li\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);

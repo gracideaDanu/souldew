@@ -78,9 +78,11 @@
 .bt-moves-group > h4 { color: var(--ink-2); }
 .bt-moves-group-body { display: grid; gap: 6px; padding-left: 8px; border-left: 1px solid color-mix(in srgb, var(--edge) 75%, transparent); }
 .bt-moves-group-body[hidden], .bt-moves[hidden] { display: none; }
-.bt-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
-.bt-moves li { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; min-width: 0; }
+.bt-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.bt-moves li { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 2px 4px; margin: 0 -4px; border-radius: var(--r-s); font-size: 12px; min-width: 0; }
 .bt-moves li + li { margin-top: 0; }
+.bt-moves li.super { background: color-mix(in srgb, var(--tri) 11%, transparent); }
+.bt-moves li.super.foe { background: color-mix(in srgb, var(--cir) 11%, transparent); }
 .bt-move-main { display: inline-flex; align-items: center; gap: 5px; flex: 1; min-width: 0; }
 .bt-moves .type { color: var(--ink); flex: 0 1 auto; min-width: 0; }
 .bt-moves .type::before { flex: none; }
