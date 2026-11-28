@@ -20,6 +20,7 @@ import { DIR } from './world.mjs';
 
 const hex = (v) => (typeof v === 'string' ? parseInt(v, 16) : Number(v));
 const u16 = (b, o) => b[o] | (b[o + 1] << 8);
+const s16 = (b, o) => (u16(b, o) << 16) >> 16;
 const u32 = (b, o) => (b[o] | (b[o + 1] << 8) | (b[o + 2] << 16) | (b[o + 3] << 24)) >>> 0;
 const s32 = (b, o) => u32(b, o) | 0;
 const ok = (b, n) => !!b && b.length >= n;
@@ -29,7 +30,7 @@ const inRam = (p) => p >= 0x02000000 && p < 0x02400000;
 export const DS_TILE = 16;
 export const DS_SCREEN = { w: 256, h: 192 };
 /** Game families whose maps share ids and coordinates: Diamond, Pearl and Platinum (map headers 0–558 are the same). */
-export const DS_FAMILIES = { dppt: 21, hgss: 22 };
+export const DS_FAMILIES = { dppt: 21, hgss: 22, bw2: 24 };
 
 // Gen 4 facing (DIR_NORTH 0, SOUTH 1, WEST 2, EAST 3) → the wire's (shared/world.mjs DIR)
 const FACING = [DIR.N, DIR.S, DIR.W, DIR.E];
@@ -43,7 +44,29 @@ const KIND = { 0: 'walk', 1: 'bike', 2: 'surf' };
  */
 export function dsWorldTable(entry) {
   const w = entry?.world;
-  if (!w || entry.gen !== 4 || !w.fieldSystem || !w.g3dGlb || !w.system) return null;
+  if (!w || !w.g3dGlb) return null;
+  if (entry.gen === 5 && w.mainPtr && w.mmdlPtr) {
+    return {
+      gen: 5,
+      id: entry.id,
+      family: w.family,
+      fam: DS_FAMILIES[w.family] || 0,
+      glb: hex(w.g3dGlb),
+      mainPtr: hex(w.mainPtr),
+      zoneOffset: hex(w.zoneOffset),
+      mmdlPtr: hex(w.mmdlPtr),
+      inBattleAddr: hex(w.inBattleAddr),
+      overworldVal: hex(w.overworldVal || '0x2800'),
+      mmodel: w.mmodel,
+      sprites: w.sprites,
+      followers: w.followers || 'none',
+      foot: w.billboardFoot ?? 4,
+      toward: w.billboardDepth ?? 12,
+      icons: w.icons || null,
+      screen: DS_SCREEN,
+    };
+  }
+  if (entry.gen !== 4 || !w.fieldSystem || !w.system) return null;
   return {
     gen: 4,
     id: entry.id,
@@ -72,6 +95,36 @@ export function dsWorldTable(entry) {
  * overlay asks again now and then and watches the new addresses.
  */
 export function dsPointers(t, read) {
+  if (t.gen === 5) {
+    const p = read(t.mainPtr, 4);
+    if (!ok(p, 4)) return null;
+    const p24 = u32(p, 0);
+    if (!inRam(p24)) return null;
+    const zoneAddr = 0x02000000 + (p24 & 0xffffff) + t.zoneOffset;
+    const okMmdl = (addr) => {
+      if (!inRam(addr)) return false;
+      const b = read(addr, 0x54);
+      if (!ok(b, 0x54) || u32(b, 8) !== 0xff || !(u32(b, 0) & 1) || u16(b, 0x18) > 3) return false;
+      return Math.abs(s16(b, 0x3c) * 16 + 8 - fx(b, 0x44)) <= 32 && Math.abs(s16(b, 0x40) * 16 + 8 - fx(b, 0x4c)) <= 32;
+    };
+    const mp = read(t.mmdlPtr, 4);
+    let obj = ok(mp, 4) ? u32(mp, 0) : 0;
+    if (!okMmdl(obj)) {
+      obj = 0;
+      const blk = read(0x02200000, 0x60000);
+      if (ok(blk, 0x60000)) {
+        for (let o = 0; o + 0x54 <= blk.length; o += 4) {
+          if (u32(blk, o + 8) === 0xff && (u32(blk, o) & 1) && u16(blk, o + 0x18) <= 3 &&
+              Math.abs(s16(blk, o + 0x3c) * 16 + 8 - fx(blk, o + 0x44)) <= 32 &&
+              Math.abs(s16(blk, o + 0x40) * 16 + 8 - fx(blk, o + 0x4c)) <= 32) {
+            obj = 0x02200000 + o;
+            break;
+          }
+        }
+      }
+    }
+    return obj ? { obj, zoneAddr } : null;
+  }
   const p = read(t.fieldSystem, 4);
   if (!ok(p, 4)) return null;
   const fs = u32(p, 0);
@@ -104,6 +157,11 @@ export function dsPointers(t, read) {
  */
 export function dsWatchRanges(t, ptr) {
   if (!t) return [];
+  if (t.gen === 5) {
+    const r = [[t.glb + 8, 0x74], [t.inBattleAddr, 2], [t.mmdlPtr, 4]];
+    if (ptr) r.push([ptr.obj, 0x54], [ptr.zoneAddr, 2]);
+    return r;
+  }
   const r = [
     [t.glb + 8, 0x74], // projMtx (4×4), mtxmode, cameraMtx (4×3)
     [t.system + 0x2c, 0x10], // vblankCounter, frameCounter, buttonMode, heldKeysRaw
@@ -126,6 +184,49 @@ const fx = (b, o) => s32(b, o) / 4096;
  * bytes aren't there; `field: false` when there is no field to draw on.
  */
 export function dsReadFrame(t, read, ptr) {
+  if (t.gen === 5) {
+    const g = read(t.glb + 8, 0x74);
+    const batB = read(t.inBattleAddr, 2);
+    if (!ok(g, 0x74) || !ok(batB, 2)) return null;
+    const P = [];
+    for (let i = 0; i < 16; i++) P.push(fx(g, i * 4));
+    const C = [];
+    for (let i = 0; i < 12; i++) C.push(fx(g, 0x44 + i * 4));
+    const glbOk = Math.abs(P[11] + 1) < 0.02 && P[0] > 0.2 && P[5] > 0.2;
+    const out = { vb: 0, fc: 1, keys: 0, P, C, field: false };
+    if (!ptr) return out;
+    const o = read(ptr.obj, 0x54);
+    const z = read(ptr.zoneAddr, 2);
+    if (!ok(o, 0x54) || !ok(z, 2) || u32(o, 8) !== 0xff) return out;
+    const zone = u16(z, 0);
+    const bat = u16(batB, 0);
+    const running = glbOk && bat === t.overworldVal && zone < 1000 ? 1 : 0;
+    const objCode = u32(o, 0x0c);
+    const gender = objCode === 0xe8 || objCode === 0xec || objCode === 0xf0 ? 1 : 0;
+    const state = objCode === 0xe9 || objCode === 0xea ? 1 : objCode === 0xeb || objCode === 0xec ? 2 : 0;
+    return {
+      ...out,
+      follow: null,
+      field: true,
+      task: 0,
+      running,
+      parent: 1,
+      child: 0,
+      map: zone,
+      matrix: [1, 1, 0],
+      player: {
+        facing: u16(o, 0x18),
+        tx: s16(o, 0x3c),
+        ty: s16(o, 0x3e),
+        tz: s16(o, 0x40),
+        x: fx(o, 0x44),
+        y: fx(o, 0x48),
+        z: fx(o, 0x4c),
+        state,
+        gender,
+      },
+    };
+  }
   const g = read(t.glb + 8, 0x74);
   const s = read(t.system + 0x2c, 0x10);
   if (!ok(g, 0x74) || !ok(s, 0x10)) return null;
@@ -480,8 +581,8 @@ export function dsAvatarSheets(files, names) {
   const out = {};
   for (const [kind, pair] of Object.entries(names || {})) {
     out[kind] = (pair || []).map((n) => {
-      const i = findBtx(files, n);
-      return i >= 0 ? btxSheet(files[i]) : null;
+      const i = typeof n === 'number' ? n : findBtx(files, n);
+      return i >= 0 && i < files.length ? btxSheet(files[i]) : null;
     });
   }
   return out;
@@ -498,7 +599,7 @@ export function dsAvatarSheets(files, names) {
  * only those pixels (where the depth says they are the player's own – not a follower in front of them).
  */
 export function measureTint(pic, frame, x, y, keep = null) {
-  if (!pic || !frame) return null;
+  if (!pic || !frame || (pic.fmt !== 0 && pic.fmt !== 2) || pic.w > 512) return null;
   const { w: pw, fmt, px } = pic;
   const sum = [[0, 0], [0, 0], [0, 0]];
   const pairs = [];

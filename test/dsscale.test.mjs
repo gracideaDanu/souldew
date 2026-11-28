@@ -5,6 +5,8 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { validDsScale, validGfxLook, validDsTouchMode, hostArgs, findSdatRange } from '../server/lib/native.mjs';
 import { dsWideAddr, applyDsWideRam, RATIO_4_3, RATIO_16_9 } from '../web/lib/dswide.mjs';
+import { dsWorldTable, dsPointers, dsWatchRanges, dsReadFrame, dsPlayer, dsDrawable } from '../shared/worldds.mjs';
+import { linkWith } from '../shared/playtogether.mjs';
 
 test('validDsScale accepts 1..4, 6 and defaults invalid values to 1', () => {
   for (const n of [1, 2, 3, 4, 6]) assert.equal(validDsScale(n), n);
@@ -86,4 +88,64 @@ test('findSdatRange locates the SDAT slice from an NDS NitroFS FAT', () => {
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('Gen 5 Black 2 Shared World table, RAM reader, and Play together compatibility', () => {
+  const pair = linkWith(
+    { id: 'pokemon-black-2', root: 'pokemon-black-2', gen: 5, system: 'nds' },
+    { id: 'pokemon-black-2', root: 'pokemon-black-2', gen: 5, system: 'nds' },
+  );
+  assert.equal(pair.world, true);
+
+  const entry = {
+    id: 'black2_us',
+    gen: 5,
+    world: {
+      family: 'bw2',
+      g3dGlb: '0x02143A0C',
+      mainPtr: '0x02000024',
+      zoneOffset: '0x41B5C',
+      mmdlPtr: '0x0230C644',
+      inBattleAddr: '0x021B5138',
+      overworldVal: '0x2800',
+    },
+  };
+  const t = dsWorldTable(entry);
+  assert.equal(t.gen, 5);
+  assert.equal(t.fam, 24);
+
+  const ram = new Uint8Array(0x400000);
+  const dv = new DataView(ram.buffer);
+  const w32 = (a, v) => dv.setUint32(a - 0x02000000, v >>> 0, true);
+  const w16 = (a, v) => dv.setUint16(a - 0x02000000, v & 0xffff, true);
+  w32(0x02000024, 0x02204CC4);
+  w16(0x02204CC4 + 0x41B5C, 427);
+  w16(0x021B5138, 0x2800);
+  w32(0x02143A0C + 8 + 0, 2 * 4096);
+  w32(0x02143A0C + 8 + 20, 3 * 4096);
+  w32(0x02143A0C + 8 + 44, -4096);
+  const mmdl = 0x0223E4A4;
+  w32(0x0230C644, mmdl);
+  w32(mmdl + 0x00, 0x23);
+  w32(mmdl + 0x08, 0xff);
+  w32(mmdl + 0x0c, 0xe7);
+  w16(mmdl + 0x18, 1);
+  w16(mmdl + 0x3c, 44);
+  w16(mmdl + 0x3e, 1);
+  w16(mmdl + 0x40, 765);
+  w32(mmdl + 0x44, 712 * 4096);
+  w32(mmdl + 0x48, 16 * 4096);
+  w32(mmdl + 0x4c, 12248 * 4096);
+
+  const read = (a, n) => ram.subarray(a - 0x02000000, a - 0x02000000 + n);
+  const ptr = dsPointers(t, read);
+  assert.deepEqual(ptr, { obj: mmdl, zoneAddr: 0x02204CC4 + 0x41B5C });
+  assert.equal(dsWatchRanges(t, ptr).length, 5);
+  const frame = dsReadFrame(t, read, ptr);
+  assert.equal(dsDrawable(frame), true);
+  const p = dsPlayer(t, frame);
+  assert.equal(p.map, 427);
+  assert.equal(p.x, 712);
+  assert.equal(p.y, 12248);
+  assert.equal(p.gender, 0);
 });

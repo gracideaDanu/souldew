@@ -32,7 +32,7 @@ export const KINDS = ['walk', 'mach', 'acro', 'bike', 'surf', 'dive', 'fieldmove
  * Blue and Yellow; Gold, Silver and Crystal – Gold/Silver maps go out with Crystal's numbers, shared/worldgb.mjs; Diamond,
  * Pearl and Platinum; HeartGold and SoulSilver – shared/worldds.mjs).
  */
-export const FAMILIES = { rs: 1, e: 2, frlg: 3, rby: 11, gsc: 13, dppt: 21, hgss: 22 };
+export const FAMILIES = { rs: 1, e: 2, frlg: 3, rby: 11, gsc: 13, dppt: 21, hgss: 22, bw2: 24 };
 
 // GBA key bits (KEYINPUT / gMain.heldKeys)
 export const GBA_KEY = { A: 1, B: 2, SELECT: 4, START: 8, RIGHT: 16, LEFT: 32, UP: 64, DOWN: 128, R: 256, L: 512 };

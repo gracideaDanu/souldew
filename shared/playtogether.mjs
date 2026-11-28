@@ -43,6 +43,7 @@ const WORLD_FAMILY = {
   'pokemon-emerald': 'e', 'pokemon-emerald-de': 'e',
   'pokemon-firered': 'frlg', 'pokemon-leafgreen': 'frlg', 'pokemon-firered-de': 'frlg', 'pokemon-leafgreen-de': 'frlg',
   'pokemon-platinum': 'dppt', 'pokemon-heartgold': 'hgss', 'pokemon-soulsilver': 'hgss',
+  'pokemon-black-2': 'bw2', 'pokemon-white-2': 'bw2',
 };
 
 /**

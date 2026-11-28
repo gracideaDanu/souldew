@@ -2760,6 +2760,24 @@
     "monsOffsetFromPtr": "0x53610",
     "source": "NDS-Ironmon-Tracker playerBattleBase (community, unverified)"
    },
+   "world": {
+    "family": "bw2",
+    "g3dGlb": "0x02143A0C",
+    "mainPtr": "0x02000024",
+    "zoneOffset": "0x41B5C",
+    "mmdlPtr": "0x0230C644",
+    "inBattleAddr": "0x021B5138",
+    "overworldVal": "0x2800",
+    "billboardFoot": 4,
+    "billboardDepth": 12,
+    "mmodel": "a/0/4/8",
+    "sprites": {
+     "walk": [7, 10],
+     "bike": [8, 11],
+     "surf": [9, 12]
+    },
+    "followers": "none"
+   },
    "verified": "community only; no decomp/symbols for Gen 5"
   },
   {
@@ -2813,6 +2831,24 @@
    "liveBattleParty": {
     "monsOffsetFromPtr": "0x53610",
     "source": "NDS-Ironmon-Tracker playerBattleBase (community, unverified)"
+   },
+   "world": {
+    "family": "bw2",
+    "g3dGlb": "0x02143A0C",
+    "mainPtr": "0x02000024",
+    "zoneOffset": "0x41B5C",
+    "mmdlPtr": "0x0230C644",
+    "inBattleAddr": "0x021B5138",
+    "overworldVal": "0x2800",
+    "billboardFoot": 4,
+    "billboardDepth": 12,
+    "mmodel": "a/0/4/8",
+    "sprites": {
+     "walk": [7, 10],
+     "bike": [8, 11],
+     "surf": [9, 12]
+    },
+    "followers": "none"
    },
    "verified": "community only; no decomp/symbols for Gen 5"
   },

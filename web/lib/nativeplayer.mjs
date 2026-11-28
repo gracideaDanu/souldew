@@ -371,16 +371,23 @@ function drawFrame() {
 // The partners' video (captureStream) at the picture's own size, as before the sharp scaling: the bigger drawing buffer
 // would only cost upload and encoder time. Drawn only while someone watches.
 let streamCanvas = null;
-function streamFrame() {
+let lastStreamAt = 0;
+function streamFrame(force = false) {
   if (!streamCanvas) return;
-  const w = pic.w || canvas.width;
-  const h = pic.h || canvas.height;
+  const now = performance.now();
+  if (!force && now - lastStreamAt < 66) return;
+  lastStreamAt = now;
+  const w0 = pic.w || canvas.width;
+  const h0 = pic.h || canvas.height;
+  const k = Math.min(1, 640 / Math.max(w0, h0, 1));
+  const w = Math.max(1, Math.round(w0 * k));
+  const h = Math.max(1, Math.round(h0 * k));
   if (streamCanvas.width !== w || streamCanvas.height !== h) {
     streamCanvas.width = w;
     streamCanvas.height = h;
   }
   const x = streamCanvas.getContext('2d');
-  x.imageSmoothingEnabled = false; // a whole factor down: the game's pixels exactly
+  x.imageSmoothingEnabled = k < 1;
   x.drawImage(canvas, 0, 0, w, h);
   if (focused() && st.touchShown) {
     const tw = w * 0.20, th = h * 0.20, left = w * 0.76, top = h * 0.76;
@@ -1198,7 +1205,7 @@ window.__emu = {
     try {
       if (!st.ready || !canvas.captureStream) return null;
       streamCanvas ||= document.createElement('canvas');
-      streamFrame();
+      streamFrame(true);
       return streamCanvas.captureStream(fps);
     } catch {
       return null;

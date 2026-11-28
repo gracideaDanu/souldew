@@ -36,7 +36,7 @@ export async function startDs(host, cfg) {
   const [{ findEntry }, addresses, rom] = await Promise.all([
     import('/shared/live/parse.mjs'),
     fetch('/shared/data/addresses.json').then((r) => r.json()),
-    fetch(host.romUrl).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => (b ? new Uint8Array(b) : null)),
+    fetch(host.romUrl, { headers: { 'x-soullink': '1' } }).then((r) => (r.ok ? r.arrayBuffer() : null)).then((b) => (b ? new Uint8Array(b) : null)),
   ]);
   const code = rom && rom.length > 0x200 ? String.fromCharCode(...rom.subarray(0x0c, 0x10)) : cfg.code || '';
   const entry = findEntry(addresses, { platform: 'nds', code });
@@ -62,25 +62,27 @@ async function loadGraphics(rom, t) {
   const mm = narc(t.mmodel);
   if (!mm) return null;
   const avatars = dsAvatarSheets(mm, t.sprites);
-  const arm9 = ndsArm9(rom).bytes;
   let followers = null;
-  if (t.followers === 'overworld') {
-    const at = findFollowerTable(arm9);
-    if (at >= 0) {
-      const lut = new Uint16Array(494);
-      for (let i = 0; i < 494; i++) lut[i] = arm9[at + i * 2] | (arm9[at + i * 2 + 1] << 8);
-      const base = mm.length - (lut[493] + 18);
-      followers = { kind: 'overworld', lut, files: mm.slice(Math.max(0, base)), base };
-    }
-  }
-  // the party icons: Diamond/Pearl/Platinum's followers, and every game's catches popping up (playing together)
   let icons = null;
-  if (t.icons) {
-    const at = findIconPalettes(arm9);
-    const files = at >= 0 ? narc(t.icons) : null;
-    if (files) icons = { kind: 'icons', pals: arm9.slice(at, at + 494), files };
+  if (t.followers === 'overworld' || t.icons) {
+    const arm9 = ndsArm9(rom).bytes;
+    if (t.followers === 'overworld') {
+      const at = findFollowerTable(arm9);
+      if (at >= 0) {
+        const lut = new Uint16Array(494);
+        for (let i = 0; i < 494; i++) lut[i] = arm9[at + i * 2] | (arm9[at + i * 2 + 1] << 8);
+        const base = mm.length - (lut[493] + 18);
+        followers = { kind: 'overworld', lut, files: mm.slice(Math.max(0, base)), base };
+      }
+    }
+    // the party icons: Diamond/Pearl/Platinum's followers, and every game's catches popping up (playing together)
+    if (t.icons) {
+      const at = findIconPalettes(arm9);
+      const files = at >= 0 ? narc(t.icons) : null;
+      if (files) icons = { kind: 'icons', pals: arm9.slice(at, at + 494), files };
+    }
+    if (!followers && icons) followers = icons;
   }
-  if (!followers && icons) followers = icons;
   return { avatars, followers, icons };
 }
 
@@ -335,11 +337,12 @@ function worldDs(host, t, gfx) {
     const order = { tomb: 0, follower: 1 };
     sprites.sort((a, b) => a.bb.foot - b.bb.foot || (order[a.type] ?? 2) - (order[b.type] ?? 2));
     const t0 = performance.now();
+    const aspectFix = rect.width / rect.height > 1.5 ? (DS_SCREEN.w / DS_SCREEN.h) / (rect.width / rect.height) : 1;
     for (const sp of sprites) {
       // the map in front – houses, trees, people, you: the DS's own depth where the host sends it; else only your figure
       const hide = depthNow ? depthCut(sp) : null;
       const behind = !depthNow && localBb && sp.bb.foot < localBb.foot - 0.5 && overlaps(sp.bb, localBb);
-      drawSprite(sp, now, hide || (behind ? { mask: localMask, bb: localBb } : null));
+      drawSprite(sp, now, hide || (behind ? { mask: localMask, bb: localBb } : null), aspectFix);
     }
     if (depthNow) (depthCost.n++, depthCost.ms += performance.now() - t0);
     if (fresh) {
@@ -517,7 +520,7 @@ function worldDs(host, t, gfx) {
   }
 
   /** One billboard; `cut`: the local player in front of it (their figure is cut out of it). */
-  function drawSprite(sp, now, cut) {
+  function drawSprite(sp, now, cut, aspectFix = 1) {
     const { bb, sheet } = sp;
     let img;
     let flip = false;
@@ -550,10 +553,10 @@ function worldDs(host, t, gfx) {
     const exact = Math.abs(k - 1) < 0.03;
     // (a party icon has empty rows under it: its lowest pixel stands on the feet's line, like a trainer's)
     const drop = sheet.kind === 'icon' ? Math.max(0, sheet.h - 2 - sheet.bottom) * k : 0;
-    const x = exact ? Math.round(bb.x) : bb.x;
-    const y = exact ? Math.round(bb.y + drop) : bb.y + drop;
-    const w = exact ? sheet.w : sheet.w * k;
+    const w = (exact ? sheet.w : sheet.w * k) * aspectFix;
     const h = exact ? sheet.h : sheet.h * k;
+    const x = aspectFix < 1 ? bb.cx - w / 2 : exact ? Math.round(bb.x) : bb.x;
+    const y = exact ? Math.round(bb.y + drop) : bb.y + drop;
     const target = cut ? sctx : ctx;
     if (cut) sctx.clearRect(0, 0, DS_SCREEN.w, DS_SCREEN.h);
     target.save();
