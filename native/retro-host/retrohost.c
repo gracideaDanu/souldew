@@ -159,7 +159,7 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
   if (!data || !w || !h) return; // a dupe: the last picture stays
   if (!want_frame) return;
   if (data == RETRO_HW_FRAME_BUFFER_VALID) {
-    if (w > glhost_w() || h > glhost_h()) glhost_ensure_fbo(w, h, hw.depth, hw.stencil);
+    if (w > glhost_w() || h > glhost_h()) { glhost_ensure_fbo(w, h, hw.depth, hw.stencil); return; }
     const size_t need = 8 + (size_t)w * h * 2;
     if (need > frame_cap) {
       uint8_t *b = realloc(frame_buf, need);
@@ -547,7 +547,10 @@ int main(int argc, char **argv) {
   memset(&av, 0, sizeof av);
   core.get_system_av_info(&av);
   if (hw_active) {
-    const unsigned fw = av.geometry.max_width ? av.geometry.max_width : 1024;
+    const char *wide = core_option("souldew_ds_wide");
+    const bool is_wide = wide && !strcmp(wide, "1");
+    unsigned fw = av.geometry.max_width ? av.geometry.max_width : 1024;
+    if (is_wide) fw = (fw * 342u + 255u) / 256u;
     const unsigned fh = av.geometry.max_height ? av.geometry.max_height : 1536;
     if (!glhost_ensure_fbo(fw, fh, hw.depth, hw.stencil)) host_die("failed to create OpenGL framebuffer (%ux%u)", fw, fh);
     if (hw.context_reset) hw.context_reset();

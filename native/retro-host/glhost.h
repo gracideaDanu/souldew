@@ -59,6 +59,9 @@ typedef ptrdiff_t GLsizeiptr;
 #ifndef GL_PACK_ALIGNMENT
 #define GL_PACK_ALIGNMENT 0x0D05
 #endif
+#ifndef GL_PACK_ROW_LENGTH
+#define GL_PACK_ROW_LENGTH 0x0D02
+#endif
 #endif
 
 #ifndef GL_RGBA8
@@ -375,8 +378,20 @@ static bool glhost_read(unsigned w, unsigned h, bool flip_y, uint8_t *dst) {
 
 static bool glhost_read565(unsigned w, unsigned h, uint8_t *dst) {
   if (!glh.ready || !glh.fbo || !w || !h || w > glh.w || h > glh.h || !dst) return false;
+  const size_t n = (size_t)w * h, need = n * 4;
+  if (need > glh.scratch_cap) {
+    uint8_t *b = (uint8_t *)realloc(glh.scratch, need);
+    if (!b) return false;
+    glh.scratch = b;
+    glh.scratch_cap = need;
+  }
   glh.pBindFramebuffer(GL_READ_FRAMEBUFFER, glh.fbo);
-  glh.pPixelStorei(GL_PACK_ALIGNMENT, 2);
-  glh.pReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, dst);
+  glh.pPixelStorei(GL_PACK_ALIGNMENT, 1);
+  glh.pPixelStorei(GL_PACK_ROW_LENGTH, 0);
+  glh.pReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, glh.scratch);
+  const uint8_t *s = glh.scratch;
+  uint16_t *out = (uint16_t *)dst;
+  for (size_t i = 0; i < n; i++, s += 4)
+    out[i] = (uint16_t)(((s[0] & 0xF8) << 8) | ((s[1] & 0xFC) << 3) | (s[2] >> 3));
   return true;
 }
