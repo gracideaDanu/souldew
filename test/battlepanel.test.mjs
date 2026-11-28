@@ -13,8 +13,8 @@ test('battle helper folded in or not, remembered per profile (#10) – in the pl
   const panel = src('session-info.mjs');
   // remembered in this profile, unfolded by default, anything else read as the default
   assert.match(panel, /const PANEL_KEY = 'sl-battle-panel';/);
-  assert.match(panel, /const PANEL_DEFAULT = \{ collapsed: false, hits: false \};/);
-  assert.match(panel, /return \{ collapsed: v\?\.collapsed === true, hits: v\?\.hits === true \};/);
+  assert.match(panel, /const PANEL_DEFAULT = \{ collapsed: false, hits: false, moves: true, myMoves: true \};/);
+  assert.match(panel, /return \{ collapsed: v\?\.collapsed === true, hits: v\?\.hits === true, moves: v\?\.moves !== false, myMoves: v\?\.myMoves !== false \};/);
   assert.match(panel, /localStorage\.setItem\(PANEL_KEY, JSON\.stringify\(next\)\)/);
   // one button on the panel: fold it in / out (the dock is its one place – no left / right any more)
   assert.match(panel, /aria-expanded=\$\{!collapsed\} onClick=\$\{\(\) => onPrefs\(\{ collapsed: !collapsed \}\)\}/);
@@ -59,4 +59,37 @@ test('"What hits …" (the opponent\'s moves) folds in – folded by default, re
   // folded, the team check's "takes" tip doesn't name the foe's move either – only how hard it hits
   assert.match(panel, /hideFoeMoves=\$\{!!onPrefs && !hitsOpen\}/);
   assert.match(panel, /hideFoeMoves && typeof mu\.takesBy === 'number' \? t\('battle\.takesTipHidden'/);
+});
+
+test('battle moves show Power (phy/spec) inline on the same row and tuck description into hover tooltip', () => {
+  const panel = src('session-info.mjs');
+  const css = readFileSync(new URL('../web/session-info.css', import.meta.url), 'utf8');
+  assert.doesNotMatch(panel, /bt-move-desc|bt-move-meta/);
+  assert.match(panel, /const moveDetails = \(id, info\) => \{/);
+  assert.match(panel, /inline: clsShort \? `\| \$\{info\.power > 0 \? info\.power : '—'\} \(\$\{clsShort\}\)` : ''/);
+  assert.match(panel, /tip: `\$\{meta\}\\n\$\{desc\}`/);
+  assert.match(panel, /<li key=\$\{id\} title=\$\{details\.tip\}>/);
+  assert.match(panel, /<li key=\$\{x\.key\} title=\$\{details\?\.tip \|\| undefined\}>/);
+  assert.match(panel, /<span class="bt-move-main">/);
+  assert.match(panel, /<span class="bt-move-stat num">\$\{inline\}<\/span>/);
+  const rowSize = Number(css.match(/\.bt-moves li\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);
+  const statSize = Number(css.match(/\.bt-move-stat\s*\{[^}]*font-size:\s*([\d.]+)px/)?.[1]);
+  assert.ok(rowSize > 0 && statSize > 0);
+  assert.ok(statSize < rowSize, `expected smaller inline stat (${statSize}) than move row (${rowSize})`);
+});
+
+test('Moves section and both move subsections collapse individually; opponent heading is "Opponent move"', () => {
+  const panel = src('session-info.mjs');
+  const css = readFileSync(new URL('../web/session-info.css', import.meta.url), 'utf8');
+  assert.match(panel, /export function BattlePanel\(\{[^}]*movesOpen = true, myMovesOpen = true[^}]*\}\)/);
+  assert.match(panel, /<button type="button" class="bt-fold" aria-expanded=\$\{movesOpen\} aria-controls="bt-moves-section" onClick=\$\{\(\) => onPrefs\(\{ moves: !movesOpen \}\)\}>/);
+  assert.match(panel, /t\('battle\.moves', 'Moves'\)/);
+  assert.match(panel, /<div class="bt-moves-group-body" id="bt-moves-section" hidden=\$\{!!onPrefs && !movesOpen\}>/);
+  assert.match(panel, /myMovesFold=\$\{onPrefs \? \{ open: myMovesOpen, toggle: \(\) => onPrefs\(\{ myMoves: !myMovesOpen \}\) \} : null\}/);
+  assert.match(panel, /<button type="button" class="bt-fold" aria-expanded=\$\{myOpen\} aria-controls=\$\{myListId\} onClick=\$\{myMovesFold\.toggle\}>/);
+  assert.match(panel, /<ul class="bt-moves" id=\$\{myListId\} hidden=\$\{!myOpen\}>\n\s+\$\{myOpen && myMoves\.map/);
+  assert.match(panel, /const title = t\('battle\.danger', 'Opponent move'\);/);
+  assert.match(src('play.mjs'), /movesOpen=\$\{panelPrefs\.moves\} myMovesOpen=\$\{panelPrefs\.myMoves\}/);
+  assert.match(css, /\.bt-block\.folded > h4 \{ margin-bottom: 0; \}/);
+  assert.match(css, /\.bt-moves-group-body\[hidden\], \.bt-moves\[hidden\] \{ display: none; \}/);
 });

@@ -49,8 +49,17 @@ test('move data follows the generation', () => {
   assert.equal(moveInfo(MOVES, 204, 6).type, 'fairy');
   assert.equal(moveInfo(MOVES, 389, 6).power, 80);
   assert.equal(moveInfo(MOVES, 389, 7).power, 70);
-  assert.deepEqual(moveInfo(MOVES, 585, 6), { type: 'fairy', power: 95, cls: 'special' }); // Moonblast
-  assert.deepEqual(moveInfo(MOVES, 670, 7), { type: 'grass', power: 40, cls: 'physical' }); // Leafage
+  assert.deepEqual(moveInfo(MOVES, 585, 6), { type: 'fairy', power: 95, cls: 'special', accuracy: 100 }); // Moonblast
+  assert.deepEqual(moveInfo(MOVES, 670, 7), { type: 'grass', power: 40, cls: 'physical', accuracy: 100 }); // Leafage
+  assert.equal(moveInfo(MOVES, 55, 4).accuracy, 100); // Water Gun
+  assert.equal(moveInfo(MOVES, 33, 4).accuracy, 95); // Tackle accuracy: 95 before Gen 5 …
+  assert.equal(moveInfo(MOVES, 33, 5).accuracy, 100); // … and 100 from Gen 5
+  assert.equal(moveInfo(MOVES, 86, 6).accuracy, 100); // Thunder Wave: 100 until Gen 6 …
+  assert.equal(moveInfo(MOVES, 86, 7).accuracy, 90); // … and 90 in Gen 7
+  assert.equal(moveInfo(MOVES, 129, 4).accuracy, 0); // Swift: never misses
+  assert.equal(moveInfo(MOVES, 18, 1).accuracy, 85); // Whirlwind: 85 in Gen 1 …
+  assert.equal(moveInfo(MOVES, 18, 5).accuracy, 100); // … 100 in Gen 2–5 …
+  assert.equal(moveInfo(MOVES, 18, 6).accuracy, 0); // … and never misses from Gen 6
   // Let's Go's values (between Ultra Sun and Sword) don't leak into the main series: Absorb was 20 until Let's Go
   for (const g of [1, 3, 5, 7]) assert.equal(moveInfo(MOVES, 71, g).power, 20);
   assert.equal(moveInfo(MOVES, 76, 4).power, 120); // Solar Beam

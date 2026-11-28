@@ -76,12 +76,13 @@ test('type matchup help: the battle helper hides the matchups when it is off, th
   const panel = readFileSync(new URL('../web/views/session-info.mjs', import.meta.url), 'utf8');
   assert.match(panel, /const help = !isRun \|\| typeHelpOn\(doc, manifest\)/);
   // moves / what hits you (OutHelp), the team's switch-in check and both weakness charts: all behind the switch
-  for (const block of ['outs.map((m) => html`<${OutHelp}', 'html`<${TeamCheck}', 'foeData.map(({ f, types }) => types.length > 0 && html`<${TypeChart}', 'outs.map((m) => typesOf(m.species, m).length > 0 && html`<${TypeChart}']) {
+  for (const block of ['outs.length > 0 && html`<div class=${`bt-block bt-moves-group', 'html`<${TeamCheck}', 'foeData.map(({ f, types }) => types.length > 0 && html`<${TypeChart}', 'outs.map((m) => typesOf(m.species, m).length > 0 && html`<${TypeChart}']) {
     const at = panel.indexOf(block);
     assert.ok(at > 0, block);
     // (and behind a known chart: a hack with types of its own whose chart wasn't found shows its types, no matchups)
     assert.match(panel.slice(at - 25, at), /help && matchups && $/, `${block} is behind the help switch and the chart check`);
   }
+  assert.ok(panel.indexOf('outs.map((m) => html`<${OutHelp}') > panel.indexOf('bt-moves-group') && panel.indexOf('outs.map((m) => html`<${OutHelp}') < panel.indexOf('html`<${TeamCheck}'));
   assert.match(panel, /const matchups = runData \? runData\.matchupsKnown : !rt \|\| !!rt\.chart \|\| !rt\.own/);
   assert.match(panel, /help && !matchups && html`<p class="tiny faint bt-nohelp">\$\{t\('battle\.noChart'/);
   // only the panel renders them (no second way in that would skip the switch)
