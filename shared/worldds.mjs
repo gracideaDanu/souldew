@@ -477,6 +477,12 @@ export function dsAvatarFrame(sheet, facing, moving, dist, speed = 1, kind = 'wa
   const d = { [DIR.N]: 0, [DIR.S]: 1, [DIR.W]: 2, [DIR.E]: 3 }[facing] ?? 1;
   const n = sheet.frames.length;
   if (n <= 4 || kind === 'surf') return Math.min(n - 1, d);
+  if (sheet.stride === 3) {
+    const step = moving ? [0, 1, 0, 2][Math.floor(dist / 8) % 4] : 0;
+    const run = moving && kind === 'walk' && speed > 1.5 && n >= 24;
+    const i = (run ? 12 : 0) + d * 3 + step;
+    return i < n ? i : d * 3;
+  }
   const step = moving ? Math.floor(dist / 8) % 4 : 0;
   const run = moving && kind === 'walk' && speed > 1.5 && n >= 32;
   const i = (run ? 16 : 0) + d * 4 + step;
@@ -577,12 +583,14 @@ export function dsMonIcon(files, pals, species) {
  * `names` the table's texture names { walk: [male, female], bike: [...], surf: [...] }. Returns { walk: [sheet,
  * sheet], bike, surf } with null where a sheet isn't found (a hack that renamed it: that kind shows walking).
  */
-export function dsAvatarSheets(files, names) {
+export function dsAvatarSheets(files, names, stride = 4) {
   const out = {};
   for (const [kind, pair] of Object.entries(names || {})) {
     out[kind] = (pair || []).map((n) => {
       const i = typeof n === 'number' ? n : findBtx(files, n);
-      return i >= 0 && i < files.length ? btxSheet(files[i]) : null;
+      const s = i >= 0 && i < files.length ? btxSheet(files[i]) : null;
+      if (s && stride !== 4) s.stride = stride;
+      return s;
     });
   }
   return out;

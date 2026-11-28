@@ -307,7 +307,7 @@ test('overworld sprites from a BTX0: textures in their frame order, the palette,
 });
 
 test('which frame shows: four per direction walking, the running half, one per direction surfing; followers two', () => {
-  const sheet = (n) => ({ frames: Array(n).fill({}) });
+  const sheet = (n, stride) => ({ frames: Array(n).fill({}), ...(stride ? { stride } : {}) });
   assert.equal(dsAvatarFrame(sheet(32), DIR.N, false, 0), 0);
   assert.equal(dsAvatarFrame(sheet(32), DIR.S, false, 0), 4);
   assert.equal(dsAvatarFrame(sheet(32), DIR.W, true, 8, 1), 9); // a step
@@ -315,6 +315,14 @@ test('which frame shows: four per direction walking, the running half, one per d
   assert.equal(dsAvatarFrame(sheet(32), DIR.E, true, 8, 2), 29); // running
   assert.equal(dsAvatarFrame(sheet(24), DIR.S, true, 8, 2, 'bike'), 5); // no running half on a bike
   assert.equal(dsAvatarFrame(sheet(4), DIR.W, true, 8, 1, 'surf'), 2);
+  // Gen 5 (3 frames per direction: stand, stepL, stand, stepR; running at +12)
+  assert.deepEqual([DIR.N, DIR.S, DIR.W, DIR.E].map((d) => dsAvatarFrame(sheet(24, 3), d, false, 0)), [0, 3, 6, 9]);
+  assert.deepEqual([0, 8, 16, 24].map((dist) => dsAvatarFrame(sheet(24, 3), DIR.S, true, dist, 1)), [3, 4, 3, 5]);
+  assert.deepEqual([0, 8, 16, 24].map((dist) => dsAvatarFrame(sheet(24, 3), DIR.E, true, dist, 1)), [9, 10, 9, 11]);
+  assert.equal(dsAvatarFrame(sheet(24, 3), DIR.E, true, 8, 2), 22);
+  assert.equal(dsAvatarFrame(sheet(24, 3), DIR.E, true, 24, 2), 23);
+  assert.equal(dsAvatarFrame(sheet(16, 3), DIR.S, true, 8, 2, 'bike'), 4);
+  assert.equal(dsAvatarFrame(sheet(4, 3), DIR.W, true, 8, 1, 'surf'), 2);
   assert.equal(dsFollowerFrame(sheet(8), DIR.E, true, 8), 7);
   assert.equal(dsFollowerFrame(sheet(8), DIR.S, false, 8), 2);
 });

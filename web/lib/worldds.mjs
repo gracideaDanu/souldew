@@ -61,7 +61,7 @@ async function loadGraphics(rom, t) {
   };
   const mm = narc(t.mmodel);
   if (!mm) return null;
-  const avatars = dsAvatarSheets(mm, t.sprites);
+  const avatars = dsAvatarSheets(mm, t.sprites, t.gen === 5 ? 3 : 4);
   let followers = null;
   let icons = null;
   if (t.followers === 'overworld' || t.icons) {
@@ -501,7 +501,8 @@ function worldDs(host, t, gfx) {
     const k = `${sheet.name}:${facing}`;
     if (!silCache.has(k)) {
       const d = { [DIR.N]: 0, [DIR.S]: 1, [DIR.W]: 2, [DIR.E]: 3 }[facing] ?? 1;
-      const idx = sheet.frames.length >= 16 ? [0, 1, 2, 3].map((i) => d * 4 + i) : [Math.min(d, sheet.frames.length - 1)];
+      const stride = sheet.stride || 4;
+      const idx = sheet.frames.length >= stride * 4 ? Array.from({ length: stride }, (_, i) => d * stride + i) : [Math.min(d, sheet.frames.length - 1)];
       const rgba = new Uint8ClampedArray(sheet.w * sheet.h * 4);
       for (const i of idx) {
         const f = sheet.frames[i].rgba;
