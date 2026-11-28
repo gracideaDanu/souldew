@@ -16,7 +16,7 @@
 // the game on the emulators' own APIs, speaks retrohost's protocol (the same page, the same save-state format), and a
 // trade or battle links the running game in place: the server hands the session to the same process (CMD_LINK, every
 // seat from the agreed states), and back (CMD_SOLO) when it ends. retrohost stays the fallback while the engine is beta.
-import { existsSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, rmSync, openSync, readSync, closeSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { createHash } from 'node:crypto';
@@ -35,7 +35,7 @@ const LIB_EXT = process.platform === 'win32' ? 'dll' : process.platform === 'dar
 export const NMSG = { ...MSG, RAM: LINK_MSG.RAM, SRAM: LINK_MSG.SRAM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16 };
 /** Commands the page may send it. */
 // (WATCH: a few RAM bytes with every picture – the Shared World overlay's camera, web/lib/worldoverlay.mjs)
-export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, DEPTH: 15 };
+export const NCMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, DEPTH: 15, AUDIO_MODE: 16 };
 
 /** Commands a page may send a link session (native/link-host/linkhost.c): no states, cheats, steps or memory writes.
  *  SEATSTATE: the player's own console for the fast player once the session is over (it goes on alone from there).
@@ -106,6 +106,9 @@ export function validDsScale(v) { const n = Number(v); return DS_SCALES.includes
 /** Settings › "Picture enhancement" (config.gfxLook): WebGL2 shader mode in nativeplayer.mjs. */
 export const GFX_LOOKS = ['crisp', 'smooth', 'xbr', 'scanlines', 'lcd'];
 export function validGfxLook(v) { return GFX_LOOKS.includes(v) ? v : 'crisp'; }
+/** Settings › "DS second screen (Focused mode)" (config.dsTouchMode): dynamic second-screen placement. */
+export const DS_TOUCH_MODES = ['fulldex', 'dock', 'corner', 'center'];
+export function validDsTouchMode(v) { return DS_TOUCH_MODES.includes(v) ? v : 'fulldex'; }
 /** The console a Game Boy family game runs on: 'dmg' (the original Game Boy) or 'cgb'; null for other systems. Game Boy
  *  Color games always on a GBC. A save state only loads into the model that made it – the model is part of its core id. */
 export function gbModel(system, look) {
@@ -260,7 +263,7 @@ export function checkNativeCommands(body) {
   const limits = {
     [NCMD.INPUT]: [17, 32], [NCMD.SPEED]: [4, 4], [NCMD.SAVE]: [0, 0], [NCMD.LOAD]: [1, 64 * 1024 * 1024], [NCMD.QUIT]: [0, 0],
     [NCMD.RESET]: [0, 0], [NCMD.WRITE]: [5, 4 + 65536], [NCMD.FLUSH]: [0, 0], [NCMD.SRAM]: [1, MAX_SAVE], [NCMD.RESYNC]: [0, 0], [NCMD.STEP]: [4, 4],
-    [NCMD.WATCH]: [4, 4 + 8 * 16], [NCMD.DEPTH]: [4, 4 + 8 * 8],
+    [NCMD.WATCH]: [4, 4 + 8 * 16], [NCMD.DEPTH]: [4, 4 + 8 * 8], [NCMD.AUDIO_MODE]: [4, 4],
   };
   for (const m of messages) {
     const l = limits[m.type];
@@ -537,5 +540,38 @@ export class NativeSessions extends CtrSessions {
     // the host reads its commands between frames – a page that floods it waits instead of piling up memory here
     if (s.child.stdin.writableLength > 128 * 1024 * 1024) throw httpError(503, 'The game is busy', 'nativeBusy');
     s.child.stdin.write(this.check(body));
+  }
+}
+
+/**
+ * Locates the largest SDAT sound archive inside a DS ROM using its NitroFS FAT without loading the whole file.
+ * Returns `{ start, end }` byte offsets, or `null` if none is found.
+ */
+export function findSdatRange(file) {
+  if (!file || !existsSync(file)) return null;
+  const size = statSync(file).size;
+  if (size < 0x200) return null;
+  const fd = openSync(file, 'r');
+  try {
+    const hdr = Buffer.alloc(0x60);
+    if (readSync(fd, hdr, 0, 0x60, 0) < 0x60) return null;
+    const fatOff = hdr.readUInt32LE(0x48);
+    const fatSize = hdr.readUInt32LE(0x4c);
+    if (!fatOff || fatSize < 8 || fatOff + fatSize > size || fatSize > 4 * 1024 * 1024) return null;
+    const fat = Buffer.alloc(fatSize);
+    if (readSync(fd, fat, 0, fatSize, fatOff) < fatSize) return null;
+    const magic = Buffer.alloc(4);
+    let best = null;
+    for (let i = 0; i + 8 <= fatSize; i += 8) {
+      const start = fat.readUInt32LE(i);
+      const end = fat.readUInt32LE(i + 4);
+      if (end - start < 0x40 || end > size) continue;
+      if (readSync(fd, magic, 0, 4, start) === 4 && magic[0] === 0x53 && magic[1] === 0x44 && magic[2] === 0x41 && magic[3] === 0x54) {
+        if (!best || end - start > best.end - best.start) best = { start, end };
+      }
+    }
+    return best;
+  } finally {
+    closeSync(fd);
   }
 }

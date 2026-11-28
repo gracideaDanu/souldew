@@ -194,6 +194,7 @@ static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch
 // ---- the DS's 3D depth (Shared World: partners hide behind the map – native/common/depth.h) -------------------------
 // souldew's melonDS DS (native/melonds-ds-patch) exports souldew_depth; another core has none and the page gets nothing.
 static int (*core_depth)(int on, int x, int y, int w, int h, uint32_t *out);
+static uint32_t ff_audio_mode;
 static struct depth_req depth;
 static int retro_depth(void *ctx, int on, int x, int y, int w, int h, uint32_t *out) {
   (void)ctx;
@@ -634,6 +635,12 @@ int main(int argc, char **argv) {
             float v;
             memcpy(&v, c->p, 4);
             speed = isfinite(v) ? (v <= 0 ? 0 : v < 0.05f ? 0.05f : v > 1000.0f ? 1000.0f : v) : v > 0 ? 1000.0f : 1.0f;
+          }
+          break;
+        case 16: // CMD_AUDIO_MODE (0 = standard resampled, 1 = Dual SPU full 0xFFFF, 2 = Dual SPU SFX-only 0xF001)
+          if (c->len >= 4) {
+            memcpy(&ff_audio_mode, c->p, 4);
+            ffa_set_pitch(&ffa, ff_audio_mode != 0);
           }
           break;
         case CMD_SAVE: {

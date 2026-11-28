@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { validDsScale, validGfxLook, hostArgs } from '../server/lib/native.mjs';
+import { mkdtempSync, writeFileSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { validDsScale, validGfxLook, validDsTouchMode, hostArgs, findSdatRange } from '../server/lib/native.mjs';
 import { dsWideAddr, applyDsWideRam, RATIO_4_3, RATIO_16_9 } from '../web/lib/dswide.mjs';
 
 test('validDsScale accepts 1..4, 6 and defaults invalid values to 1', () => {
@@ -42,6 +45,11 @@ test('validGfxLook accepts known shader modes and defaults invalid values to cri
   for (const bad of ['', 'crt', null, undefined, 123]) assert.equal(validGfxLook(bad), 'crisp');
 });
 
+test('validDsTouchMode accepts known second-screen modes and defaults to fulldex', () => {
+  for (const m of ['fulldex', 'dock', 'corner', 'center']) assert.equal(validDsTouchMode(m), m);
+  for (const bad of ['', 'split', null, undefined, 42]) assert.equal(validDsTouchMode(bad), 'fulldex');
+});
+
 test('hostArgs emits software mode at 1x and OpenGL HD options at 2x..4x for nds', () => {
   const base = { system: 'nds', core: 'melondsds_libretro.dll', rom: 'game.nds', saveDir: '/save', systemDir: '/sys' };
   const a1 = hostArgs({ ...base, dsScale: 1 });
@@ -58,4 +66,24 @@ test('hostArgs emits software mode at 1x and OpenGL HD options at 2x..4x for nds
 test('hostArgs ignores dsScale for non-DS systems', () => {
   const gba = hostArgs({ system: 'gba', core: 'mgba_libretro.dll', rom: 'game.gba', saveDir: '/save', systemDir: '/sys', dsScale: 4 });
   assert.ok(!gba.some((x) => x.includes('melonds_')));
+});
+
+test('findSdatRange locates the SDAT slice from an NDS NitroFS FAT', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'souldew-sdat-'));
+  try {
+    const file = join(dir, 'test.nds');
+    const buf = Buffer.alloc(0x400);
+    buf.writeUInt32LE(0x200, 0x48); // fatOff
+    buf.writeUInt32LE(16, 0x4c); // fatSize (2 entries)
+    buf.writeUInt32LE(0x240, 0x200);
+    buf.writeUInt32LE(0x2a0, 0x204);
+    buf.write('TEST', 0x240, 'ascii');
+    buf.writeUInt32LE(0x300, 0x208);
+    buf.writeUInt32LE(0x380, 0x20c);
+    buf.write('SDAT', 0x300, 'ascii');
+    writeFileSync(file, buf);
+    assert.deepEqual(findSdatRange(file), { start: 0x300, end: 0x380 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

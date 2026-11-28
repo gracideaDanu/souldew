@@ -1,8 +1,8 @@
 diff --git a/src/libretro/libretro.cpp b/src/libretro/libretro.cpp
-index b56f23a..b2901e4 100644
+index b56f23a..dd2bc0b 100644
 --- a/src/libretro/libretro.cpp
 +++ b/src/libretro/libretro.cpp
-@@ -411,3 +411,18 @@ u16 Platform::MP_RecvReplies(u8* packets, u64 timestamp, u16 aidmask, void*) {
+@@ -411,3 +411,32 @@ u16 Platform::MP_RecvReplies(u8* packets, u64 timestamp, u16 aidmask, void*) {
      }
      return ret;
  }
@@ -20,6 +20,20 @@ index b56f23a..b2901e4 100644
 +    soft->SouldewKeepDepth(on != 0);
 +    if (!on || !out) return 0;
 +    return soft->SouldewDepth(x, y, w, h, out);
++}
++
++// souldew: Dual SPU Synch/Asynch – ticks an asynchronous mirror of the 16 DS SPU channels at 1x wall-clock speed
++// during fast-forward so real game music + SFX play at normal speed and pitch.
++extern "C" PUBLIC_SYMBOL int souldew_spu_async(int16_t *out, int samples, uint32_t mask) {
++    auto *nds = const_cast<melonDS::NDS*>(MelonDsDs::Core.GetConsole());
++    if (!nds) return -1;
++    if (samples == 0) {
++        nds->SPU.SouldewSyncAsync();
++        return 0;
++    }
++    if (!out || samples < 0) return -1;
++    nds->SPU.SouldewMixAsync(out, samples, static_cast<melonDS::u16>(mask ? mask : 0xFFFF));
++    return samples;
 +}
 diff --git a/src/libretro/render/opengl.cpp b/src/libretro/render/opengl.cpp
 index d2aec34..195f77d 100644

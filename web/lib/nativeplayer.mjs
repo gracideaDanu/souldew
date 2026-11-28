@@ -28,7 +28,7 @@ const SYSTEM = q.get('system') || 'nds';
 let LINK_SESSION = q.get('link') === '1' ? q.get('session') : null;
 // (retrohost's messages – the link host speaks the same ones plus its own, shared/link.mjs)
 const MSG = { VIDEO: 2, AUDIO: 3, STATE: 5, LOG: 6, EVENT: 7, RAM: 8, SRAM: 9, MEM: LINK_MSG.MEM, LINPUT: LINK_MSG.LINPUT, SEATSRAM: LINK_MSG.SEATSRAM, SEATSTATE: LINK_MSG.SEATSTATE, WATCHED: 16, DEPTH: 17 };
-const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, DEPTH: 15, SEATSTATE: LINK_CMD.SEATSTATE, READ: LINK_CMD.READ };
+const CMD = { INPUT: 1, SPEED: 2, SAVE: 3, LOAD: 4, QUIT: 6, RESET: 7, WRITE: 9, FLUSH: 10, SRAM: 11, RESYNC: 12, STEP: 13, WATCH: 14, DEPTH: 15, AUDIO_MODE: 16, SEATSTATE: LINK_CMD.SEATSTATE, READ: LINK_CMD.READ };
 const post = (m) => window.parent?.postMessage(m, location.origin);
 // ?debug=1 (the ROM matrix): what arrives from the host – events, picture sizes, saves – on the console
 const DEBUG = q.get('debug') === '1';
@@ -60,6 +60,7 @@ const st = {
   dsLayout: q.get('layout') === 'focus' ? 'focus' : /left/i.test(q.get('layout') || '') ? 'lr' : 'tb',
   dsWide: q.get('wide') === '1',
   gfxLook: ['crisp', 'smooth', 'xbr', 'scanlines', 'lcd'].includes(q.get('look')) ? q.get('look') : 'crisp',
+  dsTouchMode: ['fulldex', 'dock', 'corner', 'center'].includes(q.get('touch')) ? q.get('touch') : 'fulldex',
   touchShown: false, dsBattle: false, touchOverride: null,
 };
 const waiters = { state: [], loaded: [], stepped: [], seatState: [], seatSram: [] };
@@ -262,10 +263,17 @@ const pic = { w: 0, h: 0, pre: 1, dw: 0, dh: 0 };
 const dsWatch = new DsTouchWatch();
 let lastDsSampleAt = 0;
 let prevXBit = false;
+function applyTouchLayout() {
+  const open = focused() && st.touchShown;
+  touchWrap.hidden = !open;
+  stage.classList.toggle('touch-open', open);
+  stage.classList.toggle('touch-dock', open && st.dsTouchMode === 'dock');
+  touchWrap.className = `mode-${st.dsTouchMode}${st.dsBattle ? ' in-battle' : ''}`;
+}
 function showTouch(on) {
   if (st.touchShown === !!on) return;
   st.touchShown = !!on;
-  touchWrap.hidden = !st.touchShown || !focused();
+  applyTouchLayout();
   post({ type: 'ds-touch', open: st.touchShown });
   drawFrame();
 }
@@ -274,6 +282,7 @@ function setDsBattle(on) {
   st.dsBattle = active;
   const want = dsWatch.setBattle(active);
   if (want !== st.touchShown) showTouch(want);
+  else applyTouchLayout();
 }
 function dsPrompt() {
   const want = dsWatch.notePrompt();
@@ -336,7 +345,7 @@ function drawFrame() {
   if (f.watched) window.__world?.onWatched(f.watched);
   if (focus) {
     const now = performance.now();
-    if (now - lastDsSampleAt >= 100) {
+    if (now - lastDsSampleAt >= 16) {
       lastDsSampleAt = now;
       const s = sampleNativeFrame(f);
       if (s) {
@@ -347,10 +356,11 @@ function drawFrame() {
   }
   gl.bindTexture(gl.TEXTURE_2D, tex);
   upload(gl, tex, uni, f, lr ? 1 : focus ? 2 : 0, eff);
-  touchWrap.hidden = !focus || !st.touchShown;
+  applyTouchLayout();
   if (focus && st.touchShown && touchGl) {
-    const w = Math.max(256, Math.round(cw * pic.pre * 0.20));
-    const h = Math.max(192, Math.round(ch * pic.pre * 0.20));
+    const dpr = devicePixelRatio || 1;
+    const w = Math.min(1024, Math.max(256, Math.round((touchWrap.clientWidth || cw * 0.22) * dpr)));
+    const h = Math.min(768, Math.max(192, Math.round((touchWrap.clientHeight || ch * 0.22) * dpr)));
     if (touchCanvas.width !== w || touchCanvas.height !== h) { touchCanvas.width = w; touchCanvas.height = h; }
     touchGl.viewport(0, 0, w, h);
     touchGl.bindTexture(touchGl.TEXTURE_2D, touchTex);
@@ -454,7 +464,7 @@ function tellAudio(m) {
   audio.node?.port.postMessage(m);
 }
 const audioInit = () => [
-  { type: 'mode', mode: st.turboAudio },
+  { type: 'mode', mode: st.turboAudio === 'pitch' ? 'plain' : st.turboAudio },
   { type: 'paused', paused: st.paused },
   ...(audio.key ? [{ type: 'song', key: audio.key }] : []),
   { type: 'speed', ratio: Math.min(st.speed, MAX_SOUND_RATIO) },
@@ -491,7 +501,7 @@ async function startAudio(rate) {
     audio.node.connect(audio.gain).connect(audio.ctx.destination);
     audio.ctx.resume().catch(() => {});
     for (const m of audioInit()) tellAudio(m); // (the state may have changed while the module loaded)
-    startSdat();
+    setTimeout(startSdat, 2500);
   } catch (e) {
     st.log.push(`audio: ${e.message}`);
   }
@@ -511,6 +521,11 @@ const sdatSong = (key) => {
   const id = /^m(\d+)$/.exec(key || '')?.[1];
   if (sdat.ready && id) sdat.worker.postMessage({ type: 'pack', key, id: Number(id) });
 };
+function syncHostAudioMode() {
+  if (!st.id || st.engine) return;
+  tellAudio({ type: 'ds-sfx', on: false });
+  cmd(CMD.AUDIO_MODE, u32(st.turboAudio === 'pitch' ? 1 : 0));
+}
 function startSdat() {
   if (SYSTEM !== 'nds' || sdat.worker || typeof Worker !== 'function' || !q.get('rom')) return;
   try {
@@ -528,10 +543,15 @@ function startSdat() {
       sdat.ready = true;
       tellAudio({ type: 'sdat-ready' });
       sdatSong(audio.key);
+      syncHostAudioMode();
     } else if (m.type === 'none') st.log.push(`sdat: ${m.why}`);
     else if (m.type === 'pack' && m.pack) tellAudio({ type: 'sdat', key: m.key, pack: m.pack });
   };
-  sdat.worker.postMessage({ type: 'rom', url: new URL(q.get('rom'), location.href).href });
+  const sdatUrl = new URL(`/api/native/sdat?src=${encodeURIComponent(q.get('rom'))}`, location.href).href;
+  fetch(sdatUrl, { headers: { 'x-soullink': '1' } })
+    .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); })
+    .then((buf) => sdat.worker?.postMessage({ type: 'sdat-buf', buf }, [buf]))
+    .catch((err) => st.log.push(`sdat: ${err?.message || err}`));
 }
 const wake = () => audio.ctx?.state === 'suspended' && audio.ctx.resume().catch(() => {});
 addEventListener('pointerdown', wake);
@@ -644,6 +664,7 @@ function onEvent(p) {
     for (const w of written.splice(0)) w.fn?.(false); // (a new host: the old one's writes get no answer any more)
     st.info = e;
     st.engine = e.engine === true;
+    syncHostAudioMode();
     if (Number.isInteger(e.local)) st.localSeat = e.local;
     // a mirror for every region the core has (all of it arrives with the first RAM message) – after a switch into or out
     // of a link session the same regions stay as they are until then (the live reader never sees an empty party)
@@ -1200,10 +1221,11 @@ window.__emu = {
     if (audio.gain) audio.gain.gain.value = v;
   },
   muted: () => st.volume === 0,
-  /** What plays while fast-forwarding: 'music' | 'mute' | 'original' | 'plain' (as player.html). */
+  /** What plays while fast-forwarding: 'pitch' | 'music' | 'mute' | 'original' | 'plain' (as player.html). */
   setTurboAudio(mode) {
     st.turboAudio = mode;
-    tellAudio({ type: 'mode', mode });
+    tellAudio({ type: 'mode', mode: mode === 'pitch' ? 'plain' : mode });
+    syncHostAudioMode();
   },
   /** The music the game plays now (location.mjs musicKey): the turbo mixer follows it. */
   songKey(key) {
@@ -1211,6 +1233,7 @@ window.__emu = {
     audio.key = key;
     tellAudio({ type: 'song', key });
     sdatSong(key);
+    syncHostAudioMode();
   },
   /** The mixer's last state changes (diagnostics). */
   /** Every mixer event from now on (the page keeps them for "Save diagnostics"); returns the unsubscribe. */
@@ -1235,7 +1258,7 @@ window.__emu = {
     if (k === 'souldew_ds_layout' && SYSTEM === 'nds' && ['tb', 'lr', 'focus'].includes(v)) {
       st.dsLayout = v;
       if (v !== 'focus') dsWatch.reset();
-      touchWrap.hidden = !focused() || !st.touchShown;
+      applyTouchLayout();
       pic.w = 0;
       pic.h = 0;
       if (focused() && dsWatch.shown) showTouch(true);
@@ -1253,6 +1276,12 @@ window.__emu = {
   },
   setDsBattle,
   setDsPrompt: dsPrompt,
+  /** Settings › "DS second screen (Focused mode)" switched while playing. */
+  setDsTouchMode(mode) {
+    st.dsTouchMode = ['fulldex', 'dock', 'corner', 'center'].includes(mode) ? mode : 'fulldex';
+    applyTouchLayout();
+    drawFrame();
+  },
   /** Settings › "Whole pixels only" switched while playing. */
   setWholePixels(on) {
     st.whole = !!on;

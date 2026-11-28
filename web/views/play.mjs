@@ -94,7 +94,7 @@ async function liveTables() {
   return TABLES;
 }
 
-const SPEEDS = [1, 2, 3, 4];
+const SPEEDS = [1, 1.5, 2, 3, 4];
 // Settings › "Max" turbo step (config.turboMax): after 4× comes "as fast as this computer can" – no limit at all.
 const MAX = Infinity;
 const speedText = (s) => (s === MAX ? t('play.speedMax', 'Max') : `${s}×`);
@@ -1427,6 +1427,11 @@ export function GameSession({ session, mode }) {
   useEffect(() => {
     if (phase === 'running') emu()?.setGfxLook?.(gfxLook);
   }, [phase, gfxLook]);
+  // Settings › "DS second screen (Focused mode)" (lib/nativeplayer.mjs): dynamic bottom-screen placement, live.
+  const dsTouchMode = status?.config?.dsTouchMode || 'fulldex';
+  useEffect(() => {
+    if (phase === 'running' && isDs) emu()?.setDsTouchMode?.(dsTouchMode);
+  }, [phase, isDs, dsTouchMode]);
   // Settings › "DS 16:9 widescreen" (lib/dswide.mjs): widen Focused top screen and patch 3D projection ratio in RAM.
   const dsWide = status?.config?.dsWide === true;
   useEffect(() => {
@@ -1627,6 +1632,7 @@ export function GameSession({ session, mode }) {
     if (wholePixels) q.set('px', 'whole');
     if (dsWide) q.set('wide', '1');
     if (gfxLook && gfxLook !== 'crisp') q.set('look', gfxLook);
+    if (dsTouchMode && dsTouchMode !== 'fulldex') q.set('touch', dsTouchMode);
     // (a link session's page also gets the game itself: once the session is over it goes on alone from there)
     if (target.link) {
       q.set('link', '1');
@@ -1969,6 +1975,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
               <label class="turbo-audio" title=${t('play.turboAudioHint', 'What you hear while fast-forwarding. “Music continues” keeps the music at its normal speed and pitch – sound effects stay silent. Where souldew has no music of its own yet (a song not yet heard at normal speed), you hear the sped-up original. “Sped-up original” plays the game’s own sound, faster and higher.')}>
                 <span class="tiny">${t('play.turboAudio', 'Turbo audio')}</span>
                 <select value=${turboAudio} onChange=${(e) => actions.turboAudio(e.target.value)}>
+                  <option value="pitch">${t('play.turboAudioPitch', 'Normal pitch + SFX')}</option>
                   <option value="music">${t('play.turboAudioMusic', 'Music continues')}</option>
                   <option value="mute">${t('play.turboAudioMute', 'Mute')}</option>
                   <option value="original" title=${t('play.turboAudioOriginalHint', 'The game’s own sound, sped up with it – music and effects play faster and higher.')}>${t('play.turboAudioOriginal', 'Sped-up original')}</option>

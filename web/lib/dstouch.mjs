@@ -100,7 +100,7 @@ export function sampleNativeFrame(f) {
  * Stateful controller for auto-showing/hiding the floating DS touch screen in Focused mode.
  */
 export class DsTouchWatch {
-  constructor({ idleHideMs = 350, baselineHideMs = 150, battleHideMs = 500, promptMs = 45000, walkLearnTicks = 12 } = {}) {
+  constructor({ idleHideMs = 0, baselineHideMs = 0, battleHideMs = 50, promptMs = 45000, walkLearnTicks = 12 } = {}) {
     this.idleHideMs = idleHideMs;
     this.baselineHideMs = baselineHideMs;
     this.battleHideMs = battleHideMs;

@@ -6,7 +6,7 @@ import { Item, Group, Check, Elsewhere } from './parts.mjs';
 import { LaunchSetting } from './launch.mjs';
 
 /** Turbo audio: kept in this browser profile (the game's sound menu and Settings show the same value). */
-export const TURBO_AUDIO = ['music', 'mute', 'original', 'plain'];
+export const TURBO_AUDIO = ['pitch', 'music', 'mute', 'original', 'plain'];
 const TURBO_AUDIO_KEY = 'sl-turbo-audio';
 /** Fired on window when either place changes it – a game running in the corner switches at once. */
 export const TURBO_AUDIO_EVENT = 'sl-turbo-audio';
@@ -40,6 +40,7 @@ function TurboAudioSetting() {
   return html`<div class="stack-s">
     <div class="grid-2"><label class="field"><span>${t('play.turboAudio', 'Turbo audio')}</span>
       <select value=${mode} onChange=${(e) => { setMode(e.target.value); writeTurboAudio(e.target.value); }}>
+        <option value="pitch">${t('play.turboAudioPitch', 'Normal pitch + SFX')}</option>
         <option value="music">${t('play.turboAudioMusic', 'Music continues')}</option>
         <option value="mute">${t('play.turboAudioMute', 'Mute')}</option>
         <option value="original">${t('play.turboAudioOriginal', 'Sped-up original')}</option>
@@ -94,6 +95,20 @@ function DsScaleSetting({ cfg, save }) {
   </div>`;
 }
 
+function DsTouchModeSetting({ cfg, save }) {
+  const value = ['fulldex', 'dock', 'corner', 'center'].includes(cfg.dsTouchMode) ? cfg.dsTouchMode : 'fulldex';
+  return html`<div class="stack-s">
+    <label class="field"><span>${t('set.dsTouchMode', 'DS second screen (Focused mode)')}</span>
+      <select value=${value} onChange=${(e) => save({ dsTouchMode: e.target.value })}>
+        <option value="fulldex">${t('set.dsTouchFulldex', 'FullDex dynamic (large menus, corner battle)')}</option>
+        <option value="dock">${t('set.dsTouchDock', 'Side-by-side dock when open')}</option>
+        <option value="corner">${t('set.dsTouchCorner', 'Compact corner overlay')}</option>
+        <option value="center">${t('set.dsTouchCenter', 'Large centered overlay')}</option>
+      </select></label>
+    <span class="small faint">${t('set.dsTouchModeHint', 'Controls how the DS bottom screen appears in Focused mode when you open a menu, Bag, Party, PC, keyboard, or enter a battle (switches live while playing).')}</span>
+  </div>`;
+}
+
 function GbLookSetting({ cfg, save }) {
   return html`<div class="stack-s">
     <label class="field"><span>${t('set.gbLook', 'Game Boy look')}</span>
@@ -137,6 +152,7 @@ export function PlaySection({ cfg, status, save }) {
         hint=${t('set.dsWideHint', 'Widens the DS top screen to 16:9 in Focused layout and patches the 3D camera projection in supported Pokémon games (Black/White 1 & 2, HeartGold/SoulSilver, Platinum) so 3D scenes render in true widescreen.')} /><//>
       ${(nativeOn || ctr) && html`<div class="grid-2">
         <${Item} id="ds-scale" when=${nativeOn}><${DsScaleSetting} cfg=${cfg} save=${save} /><//>
+        <${Item} id="ds-touch-mode" when=${nativeOn}><${DsTouchModeSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="gfx-look" when=${nativeOn}><${GfxLookSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="gb-look" when=${nativeOn}><${GbLookSetting} cfg=${cfg} save=${save} /><//>
         <${Item} id="ctr-scale" when=${ctr}><${CtrScaleSetting} cfg=${cfg} save=${save} /><//>
