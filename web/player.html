@@ -472,6 +472,7 @@
   // already sizes the iframe to the console's aspect, so this only trims bars (e.g. in fullscreen).
   let sideBySide = /left/i.test(q.get('layout') || ''); // DS screens next to each other (switchable while playing)
   let dsLayout = q.get('dsLayout') === 'focus' ? 'focus' : sideBySide ? 'lr' : 'tb';
+  let dsWide = q.get('wide') === '1';
   let dsTouchShown = false;
   let dsBattle = false;
   let dsTouchOverride = null;
@@ -505,7 +506,7 @@
   function fit() {
     const box = document.getElementById('game');
     if (!pxScale || !box) return;
-    const src = system === 'nds' ? (dsLayout === 'focus' ? { w: 256, h: 192 } : sideBySide ? { w: 512, h: 192 } : { w: 256, h: 384 }) : PICTURE[system];
+    const src = system === 'nds' ? (dsLayout === 'focus' ? (dsWide ? { w: 341, h: 192 } : { w: 256, h: 192 }) : sideBySide ? { w: 512, h: 192 } : { w: 256, h: 384 }) : PICTURE[system];
     if (!src) return;
     const s = pxScale.sharpScale(src, { w: innerWidth, h: innerHeight }, window.devicePixelRatio || 1, { whole: true, maxLoss: wholePixels ? pxScale.WHOLE_MAX_LOSS : SHARP_LOSS });
     // (inline: EmulatorJS sets the element's classes itself)
@@ -1531,6 +1532,10 @@
     /** Settings › "Whole pixels only" switched while playing. */
     setWholePixels(on) {
       wholePixels = !!on;
+      fit();
+    },
+    setDsWide(on) {
+      dsWide = !!on;
       fit();
     },
     fullscreen: () => document.documentElement.requestFullscreen?.(),

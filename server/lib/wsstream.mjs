@@ -21,7 +21,7 @@ const GUID = '258EAFA5-E914-47DA-95CA-C5AB0DC85B11';
  * How far the host may be ahead of the page: about what the TCP buffers of the HTTP stream held (a few 3DS pictures
  * at 1×, one at 3×) – latency stays as it was, and a page that stops reading stops the host.
  */
-export const WINDOW = 2 * 1024 * 1024;
+export const WINDOW = 8 * 1024 * 1024;
 
 /** The Sec-WebSocket-Accept answer to a client's key. */
 export const acceptKey = (key) => createHash('sha1').update(`${key}${GUID}`).digest('base64');

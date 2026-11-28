@@ -152,21 +152,23 @@ static int frame_w, frame_h, frame_fmt, frame_new;
 static uint64_t frame_no;
 static struct ram_stream rs;
 static struct cadence cad;
+static struct retro_hw_render_callback hw;
+static bool hw_active = false;
 
 static void video_refresh(const void *data, unsigned w, unsigned h, size_t pitch) {
   if (!data || !w || !h) return; // a dupe: the last picture stays
   if (!want_frame) return;
   if (data == RETRO_HW_FRAME_BUFFER_VALID) {
-    if (w > glhost_w() || h > glhost_h()) glhost_ensure_fbo(w, h, false, false);
-    const size_t need = 8 + (size_t)w * h * 4;
+    if (w > glhost_w() || h > glhost_h()) glhost_ensure_fbo(w, h, hw.depth, hw.stencil);
+    const size_t need = 8 + (size_t)w * h * 2;
     if (need > frame_cap) {
       uint8_t *b = realloc(frame_buf, need);
       if (!b) return;
       frame_buf = b;
       frame_cap = need;
     }
-    if (!glhost_read(w, h, true, frame_buf + 8)) return;
-    frame_w = (int)w, frame_h = (int)h, frame_fmt = 1, frame_new = 1;
+    if (!glhost_read565(w, h, frame_buf + 8)) return;
+    frame_w = (int)w, frame_h = (int)h, frame_fmt = 4, frame_new = 1;
     return;
   }
   const int bpp = pixfmt == RETRO_PIXEL_FORMAT_XRGB8888 ? 4 : 2;
@@ -210,11 +212,9 @@ static void send_frame(void) {
   memcpy(frame_buf, &ww, 2);
   memcpy(frame_buf + 2, &hh, 2);
   memcpy(frame_buf + 4, &f, 4);
-  host_send(MSG_VIDEO, frame_buf, (uint32_t)(8 + (size_t)frame_w * frame_h * (frame_fmt == 2 ? 2 : 4)));
+  host_send(MSG_VIDEO, frame_buf, (uint32_t)(8 + (size_t)frame_w * frame_h * (frame_fmt == 2 || frame_fmt == 4 ? 2 : 4)));
 }
 
-static struct retro_hw_render_callback hw;
-static bool hw_active = false;
 static bool hw_want_gl(void) {
   const char *rm = core_option("melonds_render_mode");
   return rm && !strcmp(rm, "opengl");
@@ -445,7 +445,7 @@ static void dump_ppm(const char *path) {
   for (int i = 0; i < frame_w * frame_h; i++) {
     uint8_t rgb[3];
     if (frame_fmt == 0) rgb[0] = px[i * 4 + 2], rgb[1] = px[i * 4 + 1], rgb[2] = px[i * 4];
-    else if (frame_fmt == 1) rgb[0] = px[i * 4], rgb[1] = px[i * 4 + 1], rgb[2] = px[i * 4 + 2];
+    else if (frame_fmt == 1 || frame_fmt == 3) rgb[0] = px[i * 4], rgb[1] = px[i * 4 + 1], rgb[2] = px[i * 4 + 2];
     else {
       uint16_t c;
       memcpy(&c, px + i * 2, 2);
@@ -485,6 +485,15 @@ int main(int argc, char **argv) {
   if (!opt_core || !opt_rom || !opt_system || !opt_save) {
     fprintf(stderr, "usage: retrohost --core <lib> --rom <file> --system <dir> --save <dir> [--sram <file>] [--state <file>] [--ram addr:len]… [--option k=v]… [--bench frames [--speed x] [--dump out.ppm]]\n");
     return 2;
+  }
+  {
+    const char *wide = core_option("souldew_ds_wide");
+    const char *val = (wide && !strcmp(wide, "1")) ? "1" : "0";
+#ifdef _WIN32
+    _putenv_s("SOULDEW_DS_WIDE", val);
+#else
+    setenv("SOULDEW_DS_WIDE", val, 1);
+#endif
   }
   hostio_init("retrohost", !opt_bench);
 

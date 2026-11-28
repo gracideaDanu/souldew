@@ -1,0 +1,267 @@
+diff --git a/src/GPU.h b/src/GPU.h
+index b0e1faf..465e089 100644
+--- a/src/GPU.h
++++ b/src/GPU.h
+@@ -847,6 +847,9 @@ public:
+     virtual void DrawScanline(u32 line) = 0;
+     virtual void DrawSprites(u32 line) = 0;
+ 
++    // souldew: the 3D renderer (Shared World reads the depth of the frame on screen from the software one)
++    Renderer3D* Souldew3D() noexcept { return Rend3D.get(); }
++
+     virtual void Start3DRendering() { Rend3D->RenderFrame(); }
+     virtual void Finish3DRendering() { Rend3D->FinishRendering(); }
+     virtual void Restart3DRendering() { Rend3D->RestartFrame(); }
+diff --git a/src/GPU2D_OpenGL.cpp b/src/GPU2D_OpenGL.cpp
+index b823658..d9474a5 100644
+--- a/src/GPU2D_OpenGL.cpp
++++ b/src/GPU2D_OpenGL.cpp
+@@ -833,8 +833,10 @@ void GLRenderer2D::UpdateScanlineConfig(int line)
+     if (DispCnt & (1<<3))
+     {
+         // 3D layer
++        static int wideOn = -1;
++        if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
+         int xpos = GPU.GPU3D.GetRenderXPos() & 0x1FF;
+-        cfg.BGOffset[0][0] = xpos - ((xpos & 0x100) << 1);
++        cfg.BGOffset[0][0] = xpos - ((xpos & 0x100) << 1) + (wideOn ? 43 : 0);
+         cfg.BGOffset[0][1] = line;
+         cfg.BGMosaicEnable[0] = false;
+     }
+@@ -1065,8 +1067,9 @@ void GLRenderer2D::UpdateLayerConfig()
+         if ((layer == 0) && (GPU2D.DispCnt & (1<<3)))
+         {
+             // 3D layer
+-
+-            cfg.Size[0] = 256; cfg.Size[1] = 192;
++            static int wideOn = -1;
++            if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++            cfg.Size[0] = wideOn ? 342 : 256; cfg.Size[1] = 192;
+             cfg.Type = 6;
+             cfg.Clamp = 1;
+ 
+diff --git a/src/GPU3D.cpp b/src/GPU3D.cpp
+index 3272a34..0117143 100644
+--- a/src/GPU3D.cpp
++++ b/src/GPU3D.cpp
+@@ -1065,6 +1065,16 @@ void GPU3D::SubmitPolygon() noexcept
+ 
+     // clipping
+ 
++    {
++        static int wideOn = -1;
++        if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++        if (wideOn && Viewport[0] == 0 && Viewport[4] == 256)
++        {
++            for (int i = clipstart; i < nverts; i++)
++                clippedvertices[i].Position[0] = (s32)(((s64)clippedvertices[i].Position[0] * 256) / 342);
++        }
++    }
++
+     nverts = ClipPolygon<true>(*this, clippedvertices, nverts, clipstart);
+     if (nverts == 0)
+     {
+@@ -1559,6 +1569,9 @@ void GPU3D::BoxTest(const u32* params) noexcept
+     cube[7].Position[0] = x1; cube[7].Position[1] = y1; cube[7].Position[2] = z1;
+ 
+     UpdateClipMatrix();
++    static int wideOn = -1;
++    if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++    const bool wideBox = wideOn && Viewport[0] == 0 && Viewport[4] == 256;
+     for (int i = 0; i < 8; i++)
+     {
+         s32 x = cube[i].Position[0];
+@@ -1569,6 +1582,8 @@ void GPU3D::BoxTest(const u32* params) noexcept
+         cube[i].Position[1] = ((s64)x*ClipMatrix[1] + (s64)y*ClipMatrix[5] + (s64)z*ClipMatrix[9] + (s64)0x1000*ClipMatrix[13]) >> 12;
+         cube[i].Position[2] = ((s64)x*ClipMatrix[2] + (s64)y*ClipMatrix[6] + (s64)z*ClipMatrix[10] + (s64)0x1000*ClipMatrix[14]) >> 12;
+         cube[i].Position[3] = ((s64)x*ClipMatrix[3] + (s64)y*ClipMatrix[7] + (s64)z*ClipMatrix[11] + (s64)0x1000*ClipMatrix[15]) >> 12;
++        if (wideBox)
++            cube[i].Position[0] = (s32)(((s64)cube[i].Position[0] * 256) / 342);
+     }
+ 
+     // front face (-Z)
+diff --git a/src/GPU3D_OpenGL.cpp b/src/GPU3D_OpenGL.cpp
+index 7bd208b..31742a1 100644
+--- a/src/GPU3D_OpenGL.cpp
++++ b/src/GPU3D_OpenGL.cpp
+@@ -343,7 +343,9 @@ void GLRenderer3D::SetRenderSettings(int scale, bool betterpolygons) noexcept
+     ScaleFactor = scale;
+     BetterPolygons = betterpolygons;
+ 
+-    ScreenW = 256 * scale;
++    static int wideOn = -1;
++    if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++    ScreenW = (wideOn ? 342 : 256) * scale;
+     ScreenH = 192 * scale;
+ 
+     glBindTexture(GL_TEXTURE_2D, ColorBufferTex);
+@@ -432,14 +434,17 @@ u32* GLRenderer3D::SetupVertex(const Polygon* poly, int vid, const Vertex* vtx,
+     while (z > 0xFFFF) { z >>= 1; zshift++; }
+ 
+     u32 x, y;
++    static int wideOn = -1;
++    if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
+     if (ScaleFactor > 1)
+     {
+-        x = (vtx->HiresPosition[0] * ScaleFactor) >> 4;
++        x = wideOn ? (u32)(((u64)vtx->HiresPosition[0] * 342 * ScaleFactor) / (256 * 16))
++                   : (u32)((vtx->HiresPosition[0] * ScaleFactor) >> 4);
+         y = (vtx->HiresPosition[1] * ScaleFactor) >> 4;
+     }
+     else
+     {
+-        x = vtx->FinalPosition[0];
++        x = wideOn ? (u32)(((u64)vtx->FinalPosition[0] * 342) / 256) : (u32)vtx->FinalPosition[0];
+         y = vtx->FinalPosition[1];
+     }
+ 
+@@ -701,7 +706,10 @@ void GLRenderer3D::BuildPolygons(GLRenderer3D::RendererPolygon* polygons, int np
+                 cS *= cW;
+                 cT *= cW;
+ 
+-                cX = (cX * ScaleFactor) >> 4;
++                static int wideOn = -1;
++                if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++                cX = wideOn ? (u32)(((u64)cX * 342 * ScaleFactor) / (256 * 16))
++                            : (u32)((cX * ScaleFactor) >> 4);
+                 cY = (cY * ScaleFactor) >> 4;
+ 
+                 u32 w = (u32)cW;
+diff --git a/src/GPU3D_Soft.cpp b/src/GPU3D_Soft.cpp
+index e620270..9b1d560 100644
+--- a/src/GPU3D_Soft.cpp
++++ b/src/GPU3D_Soft.cpp
+@@ -1741,6 +1741,27 @@ void SoftRenderer3D::FinishRendering()
+ {
+     if (RenderThreadRunning.load(std::memory_order_relaxed) && !GPU3D.AbortFrame)
+         Platform::Semaphore_Wait(Sema_RenderDone);
++
++    // souldew: the frame on screen is rendered (line 192) – keep its depth before line 215 starts the next one
++    if (SouldewOn)
++    {
++        for (int y = 0; y < 192; y++)
++            memcpy(&SouldewBuf[y * 256], &DepthBuffer[FirstPixelOffset + y * ScanlineWidth], 256 * sizeof(u32));
++        SouldewWBuffer = GPU3D.RenderNumPolygons > 0 && GPU3D.RenderPolygonRAM[0] && GPU3D.RenderPolygonRAM[0]->WBuffer;
++        SouldewValid = true;
++    }
++}
++
++int SoftRenderer3D::SouldewDepth(int x, int y, int w, int h, u32* out) const noexcept
++{
++    if (!SouldewValid || w <= 0 || h <= 0) return 0;
++    for (int r = 0; r < h; r++)
++        for (int c = 0; c < w; c++)
++        {
++            const int sx = x + c, sy = y + r;
++            out[r * w + c] = (sx < 0 || sy < 0 || sx >= 256 || sy >= 192) ? 0xFFFFFFFF : (SouldewBuf[sy * 256 + sx] & 0xFFFFFF);
++        }
++    return SouldewWBuffer ? 3 : 1;
+ }
+ 
+ void SoftRenderer3D::RenderFrame()
+diff --git a/src/GPU3D_Soft.h b/src/GPU3D_Soft.h
+index f6034f2..e16ab18 100644
+--- a/src/GPU3D_Soft.h
++++ b/src/GPU3D_Soft.h
+@@ -48,6 +48,12 @@ public:
+     void EnableRenderThread();
+     void StopRenderThread();
+ 
++    // souldew (Shared World): the depth of the 3D frame on screen, kept while asked for – partners drawn over the
++    // picture hide where the map is nearer, as the game's own sprites do. SouldewDepth copies a rectangle of it, row by
++    // row (24-bit depth per pixel, Z or W as the frame used), and returns 1 | 2 when W-buffered (0: nothing kept yet).
++    void SouldewKeepDepth(bool on) noexcept { SouldewOn = on; if (!on) SouldewValid = false; }
++    int SouldewDepth(int x, int y, int w, int h, u32* out) const noexcept;
++
+ private:
+     SoftRenderer& Parent;
+ 
+@@ -510,5 +516,12 @@ private:
+     // Used to allow the main thread to read some scanlines
+     // before (the 3D portion of) the entire frame is rasterized.
+     Platform::Semaphore* Sema_ScanlineCount;
++
++    // souldew: the depth of the frame on screen, copied when its rendering is done (the next one starts at line 215,
++    // long before a frontend could read it)
++    bool SouldewOn = false;
++    bool SouldewValid = false;
++    bool SouldewWBuffer = false;
++    u32 SouldewBuf[256 * 192];
+ };
+ }
+diff --git a/src/GPU_OpenGL.cpp b/src/GPU_OpenGL.cpp
+index 4853369..38717a5 100644
+--- a/src/GPU_OpenGL.cpp
++++ b/src/GPU_OpenGL.cpp
+@@ -261,6 +261,9 @@ GLRenderer::~GLRenderer()
+     glDeleteTextures(1, &AuxInputTex);
+     glDeleteTextures(1, &CaptureVRAMTex);
+     glDeleteTextures(2, FPOutputTex);
++    if (Wide3DTex[0]) glDeleteTextures(2, Wide3DTex);
++    if (Wide3DReadFB) glDeleteFramebuffers(1, &Wide3DReadFB);
++    if (Wide3DDrawFB) glDeleteFramebuffers(1, &Wide3DDrawFB);
+ 
+     delete[] AuxInputBuffer[0];
+     delete[] AuxInputBuffer[1];
+@@ -619,6 +622,38 @@ void GLRenderer::VBlank()
+ 
+     RenderScreen(LastLine, 192);
+ 
++    static int wideOn = -1;
++    if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++    if (wideOn && OutputTex3D && ScaleFactor > 0)
++    {
++        const int w = 342 * ScaleFactor;
++        const int h = 192 * ScaleFactor;
++        if (Wide3DW != w || Wide3DH != h || !Wide3DTex[0])
++        {
++            if (!Wide3DTex[0]) glGenTextures(2, Wide3DTex);
++            if (!Wide3DReadFB) glGenFramebuffers(1, &Wide3DReadFB);
++            if (!Wide3DDrawFB) glGenFramebuffers(1, &Wide3DDrawFB);
++            for (int i = 0; i < 2; i++)
++            {
++                glBindTexture(GL_TEXTURE_2D, Wide3DTex[i]);
++                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
++                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
++                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
++                glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
++                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, w, h, 0, GL_RGBA, GL_UNSIGNED_BYTE, nullptr);
++            }
++            Wide3DW = w;
++            Wide3DH = h;
++        }
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, Wide3DReadFB);
++        glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OutputTex3D, 0);
++        glBindFramebuffer(GL_DRAW_FRAMEBUFFER, Wide3DDrawFB);
++        glFramebufferTexture2D(GL_DRAW_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, Wide3DTex[BackBuffer], 0);
++        glDisable(GL_SCISSOR_TEST);
++        glBlitFramebuffer(0, 0, w, h, 0, 0, w, h, GL_COLOR_BUFFER_BIT, GL_NEAREST);
++        glBindFramebuffer(GL_FRAMEBUFFER, 0);
++    }
++
+     if (GPU.CaptureEnable)
+         DoCapture(LastCapLine, 192);
+ 
+diff --git a/src/GPU_OpenGL.h b/src/GPU_OpenGL.h
+index 5fa2db8..2fba0ed 100644
+--- a/src/GPU_OpenGL.h
++++ b/src/GPU_OpenGL.h
+@@ -51,6 +51,7 @@ public:
+     void SyncVRAMCapture(u32 bank, u32 start, u32 len, bool complete) override;
+ 
+     bool GetFramebuffers(void** top, void** bottom) override;
++    GLuint GetOutputTex3D() const noexcept { int f = BackBuffer ^ 1; return Wide3DTex[f] ? Wide3DTex[f] : OutputTex3D; }
+ 
+     bool NeedsShaderCompile() override;
+     void ShaderCompileStep(int& current, int& count) override;
+@@ -70,6 +71,10 @@ private:
+ 
+     GLuint OutputTex3D {};
+     GLuint OutputTex2D[2] {};
++    GLuint Wide3DTex[2] {};
++    GLuint Wide3DReadFB {};
++    GLuint Wide3DDrawFB {};
++    int Wide3DW {}, Wide3DH {};
+ 
+     struct sFinalPassConfig
+     {

@@ -58,6 +58,8 @@ const st = {
   model: q.get('model') || null, // a Game Boy game's console ('dmg' | 'cgb'): its save states only load into that model
   engine: false, // the souldew engine plays (its loaded event says so): link sessions switch in its own process
   dsLayout: q.get('layout') === 'focus' ? 'focus' : /left/i.test(q.get('layout') || '') ? 'lr' : 'tb',
+  dsWide: q.get('wide') === '1',
+  gfxLook: ['crisp', 'smooth', 'xbr', 'scanlines', 'lcd'].includes(q.get('look')) ? q.get('look') : 'crisp',
   touchShown: false, dsBattle: false, touchOverride: null,
 };
 const waiters = { state: [], loaded: [], stepped: [], seatState: [], seatSram: [] };
@@ -161,11 +163,47 @@ let uni = null;
 let tex = null;
 let touchUni = null;
 let touchTex = null;
+const GFX_INDEX = { crisp: 0, smooth: 1, xbr: 2, scanlines: 3, lcd: 4 };
+function applyTexFilter(ctx, texture, linear) {
+  if (!ctx || !texture) return;
+  const f = linear ? ctx.LINEAR : ctx.NEAREST;
+  ctx.bindTexture(ctx.TEXTURE_2D, texture);
+  ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MIN_FILTER, f);
+  ctx.texParameteri(ctx.TEXTURE_2D, ctx.TEXTURE_MAG_FILTER, f);
+}
 function initGl() {
   const vs = '#version 300 es\nin vec2 p;out vec2 uv;void main(){uv=vec2((p.x+1.)*.5,(1.-p.y)*.5);gl_Position=vec4(p,0.,1.);}';
   // 0: both screens stacked, 1: side by side, 2: top screen only, 3: the touch screen for the floating panel.
-  const fs = '#version 300 es\nprecision mediump float;in vec2 uv;uniform sampler2D t;uniform bool bgra;uniform int mode;out vec4 o;'
-    + 'void main(){vec2 c=uv;if(mode==1)c=uv.x<.5?vec2(uv.x*2.,uv.y*.5):vec2((uv.x-.5)*2.,.5+uv.y*.5);else if(mode==2)c=vec2(uv.x,uv.y*.5);else if(mode==3)c=vec2(uv.x,.5+uv.y*.5);vec4 x=texture(t,c);o=vec4(bgra?x.bgr:x.rgb,1.);}';
+  // effect: 0 crisp, 1 smooth+vibrant CAS, 2 hybrid 3D+2D xBR sprite smoothing, 3 scanlines, 4 lcd grid.
+  const fs = '#version 300 es\nprecision highp float;in vec2 uv;uniform sampler2D t;uniform bool bgra;uniform bool flipY;uniform float topFrac;uniform vec2 botBox;uniform float botX0;uniform int mode;uniform int effect;uniform vec2 texSize;uniform vec2 logicalSize;out vec4 o;'
+    + 'vec3 srgb(vec2 p){vec4 x=texture(t,p);return bgra?x.bgr:x.rgb;}'
+    + 'float yuvd(vec3 a,vec3 b){vec3 d=abs(a-b);return dot(d,vec3(.55,.35,.10));}'
+    + 'vec3 vibrant(vec3 col){float l=dot(col,vec3(.299,.587,.114));col=mix(vec3(l),col,1.15);return clamp((col-.5)*1.06+.5,0.,1.);}'
+    + 'vec3 casSmooth(vec2 c,vec2 ts){vec2 d=1./ts;vec3 m=srgb(c),a=srgb(c+vec2(0.,-d.y)),b=srgb(c+vec2(0.,d.y)),l=srgb(c+vec2(-d.x,0.)),r=srgb(c+vec2(d.x,0.));'
+    + 'vec3 mn=min(m,min(min(a,b),min(l,r))),mx=max(m,max(max(a,b),max(l,r)));vec3 avg=(a+b+l+r)*.25;vec3 sh=clamp(m+(m-avg)*.38,mn,mx);return vibrant(sh);}'
+    + 'vec3 xbrHybrid(vec2 c,vec2 ts,vec2 ls){'
+    + 'float hd=0.;if(ts.x>ls.x+1.){vec2 q=.25/ls;vec3 p0=srgb(c+vec2(-q.x,-q.y)),p1=srgb(c+vec2(q.x,q.y)),p2=srgb(c+vec2(q.x,-q.y)),p3=srgb(c+vec2(-q.x,q.y));hd=max(yuvd(p0,p1),yuvd(p2,p3));}'
+    + 'vec2 px=c*ls,fp=fract(px)-.5,base=(floor(px)+.5)/ls,d=1./ls;'
+    + 'vec2 sx=vec2(fp.x<0.?-d.x:d.x,0.),sy=vec2(0.,fp.y<0.?-d.y:d.y);'
+    + 'vec3 E=srgb(base),F=srgb(base+sx),H=srgb(base+sy),D=srgb(base-sx),B=srgb(base-sy);'
+    + 'vec3 C=srgb(base+sx-sy),G=srgb(base-sx+sy),I=srgb(base+sx+sy);'
+    + 'vec3 xbr=E;if(yuvd(E,F)>.02&&yuvd(E,H)>.02){'
+    + 'float w1=yuvd(E,C)+yuvd(E,G)+yuvd(I,H)+yuvd(I,F)+4.*yuvd(H,F);'
+    + 'float w2=yuvd(H,D)+yuvd(H,I)+yuvd(F,B)+yuvd(F,I)+4.*yuvd(E,I);'
+    + 'if(w1<w2){vec2 af=abs(fp);float blend=smoothstep(.42,.72,af.x+af.y);vec3 edge=yuvd(E,F)<yuvd(E,H)?F:H;xbr=mix(E,edge,blend);}'
+    + '}'
+    + 'vec3 hd3d=casSmooth(c,ts);return vibrant(mix(xbr,hd3d,smoothstep(.08,.24,hd)));}'
+    + 'void main(){vec2 c=uv;'
+    + 'if(mode==0)c=uv.y<.5?vec2(uv.x,uv.y*2.*topFrac):vec2(botX0+uv.x*botBox.x,topFrac+(uv.y-.5)*2.*botBox.y);'
+    + 'else if(mode==1)c=uv.x<.5?vec2(uv.x*2.,uv.y*topFrac):vec2(botX0+(uv.x-.5)*2.*botBox.x,topFrac+uv.y*botBox.y);'
+    + 'else if(mode==2)c=vec2(uv.x,uv.y*topFrac);'
+    + 'else if(mode==3)c=vec2(botX0+uv.x*botBox.x,topFrac+uv.y*botBox.y);'
+    + 'if(flipY)c.y=1.-c.y;'
+    + 'vec2 ts=max(texSize,vec2(1.)),ls=max(logicalSize,vec2(1.));vec3 col;'
+    + 'if(effect==1)col=casSmooth(c,ts);else if(effect==2)col=xbrHybrid(c,ts,ls);else col=srgb(c);'
+    + 'if(effect==3&&floor(mod(gl_FragCoord.y,3.))<.5)col*=.70;'
+    + 'else if(effect==4&&(floor(mod(gl_FragCoord.x,3.))<.5||floor(mod(gl_FragCoord.y,3.))<.5))col*=.84;'
+    + 'o=vec4(col,1.);}';
   const make = (ctx) => {
     if (!ctx) return null;
     const sh = (type, src) => {
@@ -189,24 +227,38 @@ function initGl() {
     ctx.bindTexture(ctx.TEXTURE_2D, texture);
     for (const [k, v] of [[ctx.TEXTURE_MIN_FILTER, ctx.NEAREST], [ctx.TEXTURE_MAG_FILTER, ctx.NEAREST], [ctx.TEXTURE_WRAP_S, ctx.CLAMP_TO_EDGE], [ctx.TEXTURE_WRAP_T, ctx.CLAMP_TO_EDGE]]) ctx.texParameteri(ctx.TEXTURE_2D, k, v);
     ctx.pixelStorei(ctx.UNPACK_ALIGNMENT, 1);
-    return { texture, bgra: ctx.getUniformLocation(prog, 'bgra'), mode: ctx.getUniformLocation(prog, 'mode') };
+    return {
+      texture,
+      texAlloc: null,
+      bgra: ctx.getUniformLocation(prog, 'bgra'),
+      flipY: ctx.getUniformLocation(prog, 'flipY'),
+      topFrac: ctx.getUniformLocation(prog, 'topFrac'),
+      botBox: ctx.getUniformLocation(prog, 'botBox'),
+      botX0: ctx.getUniformLocation(prog, 'botX0'),
+      mode: ctx.getUniformLocation(prog, 'mode'),
+      effect: ctx.getUniformLocation(prog, 'effect'),
+      texSize: ctx.getUniformLocation(prog, 'texSize'),
+      logicalSize: ctx.getUniformLocation(prog, 'logicalSize'),
+    };
   };
   const main = make(gl);
   const touch = make(touchGl);
-  if (main) { tex = main.texture; uni = { bgra: main.bgra, mode: main.mode }; }
-  if (touch) { touchTex = touch.texture; touchUni = { bgra: touch.bgra, mode: touch.mode }; }
+  if (main) { tex = main.texture; uni = { texAlloc: null, bgra: main.bgra, flipY: main.flipY, topFrac: main.topFrac, botBox: main.botBox, botX0: main.botX0, mode: main.mode, effect: main.effect, texSize: main.texSize, logicalSize: main.logicalSize }; applyTexFilter(gl, tex, st.gfxLook === 'smooth'); }
+  if (touch) { touchTex = touch.texture; touchUni = { texAlloc: null, bgra: touch.bgra, flipY: touch.flipY, topFrac: touch.topFrac, botBox: touch.botBox, botX0: touch.botX0, mode: touch.mode, effect: touch.effect, texSize: touch.texSize, logicalSize: touch.logicalSize }; applyTexFilter(touchGl, touchTex, st.gfxLook === 'smooth'); }
 }
 if (gl) initGl();
 
 const sideBySide = () => SYSTEM === 'nds' && st.dsLayout === 'lr';
 const focused = () => SYSTEM === 'nds' && st.dsLayout === 'focus';
+const isCompactWide = (f) => SYSTEM === 'nds' && f && f.w >= 342 * 3 && f.h > 192 && f.h < Math.round((f.w * 384) / 342) - 4;
+const isNativeWide = (f) => SYSTEM === 'nds' && f && f.h > 0 && (isCompactWide(f) || (f.w / (f.h / 2)) > 1.5);
 let pendingFrame = null;
 let lastFrame = null;
 let nextWatched = null; // WATCHED: the bytes the host sends right before a picture (Shared World's camera)
 let nextDepth = null; // DEPTH: the DS's 3D depth in the rectangles the overlay named, for the same picture
 let lastWatched = null; // (the newest of them – the A press checks what the game shows now)
 // the game's picture in game pixels (lib/pixelscale.mjs): the canvas holds pic × pre
-const pic = { w: 0, h: 0, pre: 1 };
+const pic = { w: 0, h: 0, pre: 1, dw: 0, dh: 0 };
 const dsWatch = new DsTouchWatch();
 let lastDsSampleAt = 0;
 let prevXBit = false;
@@ -227,11 +279,34 @@ function dsPrompt() {
   const want = dsWatch.notePrompt();
   if (want !== st.touchShown) showTouch(want);
 }
-function upload(ctx, texture, uniforms, f, mode) {
-  if (f.fmt === 2) ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGB, f.w, f.h, 0, ctx.RGB, ctx.UNSIGNED_SHORT_5_6_5, new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h));
-  else ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, f.w, f.h, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, f.px);
+function upload(ctx, texture, uniforms, f, mode, effect = 0) {
+  const same = uniforms.texAlloc && uniforms.texAlloc.w === f.w && uniforms.texAlloc.h === f.h && uniforms.texAlloc.fmt === f.fmt;
+  if (f.fmt === 2 || f.fmt === 4) {
+    const px16 = new Uint16Array(f.px.buffer, f.px.byteOffset, f.w * f.h);
+    if (same) ctx.texSubImage2D(ctx.TEXTURE_2D, 0, 0, 0, f.w, f.h, ctx.RGB, ctx.UNSIGNED_SHORT_5_6_5, px16);
+    else ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGB, f.w, f.h, 0, ctx.RGB, ctx.UNSIGNED_SHORT_5_6_5, px16);
+  } else if (same) {
+    ctx.texSubImage2D(ctx.TEXTURE_2D, 0, 0, 0, f.w, f.h, ctx.RGBA, ctx.UNSIGNED_BYTE, f.px);
+  } else {
+    ctx.texImage2D(ctx.TEXTURE_2D, 0, ctx.RGBA, f.w, f.h, 0, ctx.RGBA, ctx.UNSIGNED_BYTE, f.px);
+  }
+  uniforms.texAlloc = { w: f.w, h: f.h, fmt: f.fmt };
+  const compact = isCompactWide(f);
+  const wide = isNativeWide(f);
+  const topH = compact ? f.h - 192 : f.h / 2;
+  const topFrac = compact ? topH / f.h : 0.5;
+  const botW = compact ? 256 / f.w : mode === 3 && wide ? 256 / 342 : 1;
+  const botH = compact ? 192 / f.h : 0.5;
+  const botX0 = compact ? 0 : mode === 3 && wide ? 43 / 342 : 0;
   ctx.uniform1i(uniforms.bgra, f.fmt === 0 ? 1 : 0);
+  ctx.uniform1i(uniforms.flipY, f.fmt === 3 || f.fmt === 4 ? 1 : 0);
+  ctx.uniform1f(uniforms.topFrac, topFrac);
+  ctx.uniform2f(uniforms.botBox, botW, botH);
+  ctx.uniform1f(uniforms.botX0, botX0);
   ctx.uniform1i(uniforms.mode, mode);
+  ctx.uniform1i(uniforms.effect, effect);
+  ctx.uniform2f(uniforms.texSize, f.w, f.h);
+  ctx.uniform2f(uniforms.logicalSize, SYSTEM === 'nds' ? (wide ? 342 : 256) : f.w, SYSTEM === 'nds' ? 384 : f.h);
   ctx.drawArrays(ctx.TRIANGLE_STRIP, 0, 4);
 }
 function drawFrame() {
@@ -241,16 +316,20 @@ function drawFrame() {
   lastFrame = f;
   const lr = sideBySide();
   const focus = focused();
+  const topH = isCompactWide(f) ? f.h - 192 : f.h / 2;
   const cw = lr ? f.w * 2 : f.w;
-  const ch = lr ? f.h / 2 : focus ? f.h / 2 : f.h;
+  const ch = lr ? topH : focus ? topH : topH * 2;
   if (pic.w !== cw || pic.h !== ch) {
     pic.w = cw;
     pic.h = ch;
     layout();
   }
-  if (canvas.width !== cw * pic.pre || canvas.height !== ch * pic.pre) {
-    canvas.width = cw * pic.pre;
-    canvas.height = ch * pic.pre;
+  const eff = GFX_INDEX[st.gfxLook] || 0;
+  const bw = eff && pic.dw > 0 ? pic.dw : cw * pic.pre;
+  const bh = eff && pic.dh > 0 ? pic.dh : ch * pic.pre;
+  if (canvas.width !== bw || canvas.height !== bh) {
+    canvas.width = bw;
+    canvas.height = bh;
     gl.viewport(0, 0, canvas.width, canvas.height);
   }
   if (f.depth) window.__world?.onDepth?.(f.depth);
@@ -267,7 +346,7 @@ function drawFrame() {
     }
   }
   gl.bindTexture(gl.TEXTURE_2D, tex);
-  upload(gl, tex, uni, f, lr ? 1 : focus ? 2 : 0);
+  upload(gl, tex, uni, f, lr ? 1 : focus ? 2 : 0, eff);
   touchWrap.hidden = !focus || !st.touchShown;
   if (focus && st.touchShown && touchGl) {
     const w = Math.max(256, Math.round(cw * pic.pre * 0.20));
@@ -275,7 +354,7 @@ function drawFrame() {
     if (touchCanvas.width !== w || touchCanvas.height !== h) { touchCanvas.width = w; touchCanvas.height = h; }
     touchGl.viewport(0, 0, w, h);
     touchGl.bindTexture(touchGl.TEXTURE_2D, touchTex);
-    upload(touchGl, touchTex, touchUni, f, 3);
+    upload(touchGl, touchTex, touchUni, f, 3, eff === 1 ? 1 : 0);
   }
   streamFrame();
 }
@@ -305,7 +384,7 @@ function onVideo(p) {
   const w = v.getUint16(0, true);
   const h = v.getUint16(2, true);
   const fmt = v.getUint32(4, true);
-  const bpp = fmt === 0 ? 4 : 2;
+  const bpp = fmt === 2 || fmt === 4 ? 2 : 4;
   if (!w || !h || p.length < 8 + w * h * bpp) return dbg('bad picture', w, h, fmt, p.length);
   if (DEBUG && (w !== st.dbgW || h !== st.dbgH)) dbg('picture', w, h, fmt), (st.dbgW = w), (st.dbgH = h);
   const px = p.subarray(8, 8 + w * h * bpp);
@@ -337,14 +416,18 @@ function onVideo(p) {
 // up by a whole number with hard edges, the rest smoothed – or whole multiples only (Settings) – lib/pixelscale.mjs
 function layout() {
   const box = document.body.getBoundingClientRect();
-  const src = pic.w ? pic : { w: canvas.width, h: canvas.height };
-  const s = sharpScale(src, { w: box.width, h: box.height }, devicePixelRatio || 1, { whole: st.whole });
+  let src = pic.w ? pic : { w: canvas.width, h: canvas.height };
+  if (focused() && st.dsWide && !isNativeWide(lastFrame) && src.w && src.h) src = { w: Math.round((src.h * 16) / 9), h: src.h };
+  const dpr = devicePixelRatio || 1;
+  const s = sharpScale(src, { w: box.width, h: box.height }, dpr, { whole: st.whole });
+  pic.dw = Math.min(1920, Math.max(1, Math.round(s.w * dpr)));
+  pic.dh = Math.min(1080, Math.max(1, Math.round(s.h * dpr)));
   stage.style.width = `${s.w}px`;
   stage.style.height = `${s.h}px`;
   canvas.style.width = `${s.w}px`;
   canvas.style.height = `${s.h}px`;
-  canvas.style.imageRendering = s.smooth ? 'auto' : 'pixelated';
-  if (pic.w && s.pre !== pic.pre) {
+  canvas.style.imageRendering = st.gfxLook !== 'crisp' || (focused() && st.dsWide) || s.smooth ? 'auto' : 'pixelated';
+  if (pic.w && (s.pre !== pic.pre || st.gfxLook !== 'crisp')) {
     pic.pre = s.pre;
     drawFrame(); // the new buffer size, with the last picture
   }
@@ -1174,6 +1257,20 @@ window.__emu = {
   setWholePixels(on) {
     st.whole = !!on;
     layout();
+  },
+  /** Settings › "DS 16:9 widescreen" switched while playing. */
+  setDsWide(on) {
+    st.dsWide = !!on;
+    layout();
+    drawFrame();
+  },
+  /** Settings › "Picture enhancement" switched while playing. */
+  setGfxLook(look) {
+    st.gfxLook = look in GFX_INDEX ? look : 'crisp';
+    applyTexFilter(gl, tex, st.gfxLook === 'smooth');
+    applyTexFilter(touchGl, touchTex, st.gfxLook === 'smooth');
+    layout();
+    drawFrame();
   },
   fullscreen: () => document.documentElement.requestFullscreen?.(),
   /** Tests / diagnostics: hold buttons by name (["a"], ["up", "b"] …) – what a controller would do. */

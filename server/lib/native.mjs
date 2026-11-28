@@ -100,9 +100,12 @@ NATIVE_CORES.gbc = NATIVE_CORES.gb;
 
 /** Settings › "Game Boy look" (config.gbLook): Game Boy games as on the original Game Boy, or in a Game Boy Color's colours. */
 export const GB_LOOKS = ['original', 'color'];
-/** Settings › "DS 3D resolution" (config.dsScale): 1 = native software, 2-4 = melonDS DS OpenGL internal scale. */
-export const DS_SCALES = [1, 2, 3, 4];
+/** Settings › "DS 3D resolution" (config.dsScale): 1 = native software, 2-6 = melonDS DS OpenGL internal scale. */
+export const DS_SCALES = [1, 2, 3, 4, 6];
 export function validDsScale(v) { const n = Number(v); return DS_SCALES.includes(n) ? n : 1; }
+/** Settings › "Picture enhancement" (config.gfxLook): WebGL2 shader mode in nativeplayer.mjs. */
+export const GFX_LOOKS = ['crisp', 'smooth', 'xbr', 'scanlines', 'lcd'];
+export function validGfxLook(v) { return GFX_LOOKS.includes(v) ? v : 'crisp'; }
 /** The console a Game Boy family game runs on: 'dmg' (the original Game Boy) or 'cgb'; null for other systems. Game Boy
  *  Color games always on a GBC. A save state only loads into the model that made it – the model is part of its core id. */
 export function gbModel(system, look) {
@@ -224,7 +227,7 @@ export function engineArgs({ system, rom, sram = null, state = null, model = nul
 }
 
 /** The host's arguments for `system` (the paths are the server's own – nothing here comes from the page). */
-export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, state = null, model = null, dsScale = 1 }) {
+export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, state = null, model = null, dsScale = 1, dsWide = false }) {
   const c = NATIVE_CORES[system];
   if (!c) throw httpError(400, 'The fast player doesn’t play this system', 'nativeSystem');
   const args = ['--core', core, '--rom', rom, '--system', systemDir, '--save', saveDir];
@@ -233,13 +236,14 @@ export function hostArgs({ system, core, rom, saveDir, systemDir, sram = null, s
   for (const [addr, len] of c.ram) args.push('--ram', `0x${addr.toString(16)}:0x${len.toString(16)}`);
   const opts = { ...c.options };
   if (system === 'nds') {
-    const sc = validDsScale(dsScale);
+    const sc = dsWide ? Math.max(2, validDsScale(dsScale)) : validDsScale(dsScale);
     if (sc > 1) {
       opts.melonds_render_mode = 'opengl';
       opts.melonds_opengl_resolution = String(sc);
       opts.melonds_opengl_better_polygons = 'enabled';
       opts.melonds_opengl_filtering = 'nearest';
     }
+    if (dsWide) opts.souldew_ds_wide = '1';
   }
   for (const [k, v] of Object.entries(opts)) args.push('--option', `${k}=${v}`);
   if (system === 'gb' || system === 'gbc') args.push('--option', `sameboy_model=${SAMEBOY_MODEL[model === 'dmg' && system === 'gb' ? 'dmg' : 'cgb']}`);
@@ -327,7 +331,7 @@ export class NativeSessions extends CtrSessions {
    * with the system's libretro core). Coming back from a link session the engine already runs (`state` given, the same
    * game): the game goes on alone in that process (CMD_SOLO) – no new player; then a promise of the id.
    */
-  startNative({ rom, key, system, tools, save = null, saveFile = null, state = null, model = null, engine = null, dsScale = 1 }) {
+  startNative({ rom, key, system, tools, save = null, saveFile = null, state = null, model = null, engine = null, dsScale = 1, dsWide = false }) {
     if (engine && state?.length && this.engineLinked(rom)) return this.soloInPlace({ key, system, save, saveFile, state, model });
     const core = engine ? engine : tools.cores?.[system];
     if (!core) throw httpError(409, 'The fast player is missing for this system', 'nativeMissing');
@@ -338,7 +342,7 @@ export class NativeSessions extends CtrSessions {
     mkdirSync(saveDir, { recursive: true });
     mkdirSync(systemDir, { recursive: true });
     const { sram, stateFile } = this.startFiles(saveDir, save, state);
-    const args = engine ? engineArgs({ system, rom, sram, state: stateFile, model }) : hostArgs({ system, core, rom, saveDir, systemDir, sram, state: stateFile, model, dsScale });
+    const args = engine ? engineArgs({ system, rom, sram, state: stateFile, model }) : hostArgs({ system, core, rom, saveDir, systemDir, sram, state: stateFile, model, dsScale, dsWide });
     const id = this.launch(engine || tools.host, args, saveDir);
     Object.assign(this.current, { saveFile, rom, engine: !!engine, system, model, key });
     return id;

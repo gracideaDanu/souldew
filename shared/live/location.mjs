@@ -747,7 +747,21 @@ export function readMusicInfo(maps, entry, read, ctx = {}) {
   try {
     if (typeof read !== 'function') return null;
     const m = mapEntryFor(maps, entry);
-    if (!m) return ctrMusicInfo(entry, read, ctx);
+    if (!m) {
+      if (entry?.gen === 5 && ctx.rom) {
+        const r = readLocation(maps, entry, read, ctx);
+        if (!r) return null;
+        const t = bwZoneHeaders(ctx.rom);
+        const season = new Date().getMonth() % 4;
+        let bgm = 0;
+        if (t && Number.isInteger(r.map) && (r.map + 1) * BW_HEADER <= t.length) {
+          bgm = u16le(t, r.map * BW_HEADER + 0x0c + season * 2) || u16le(t, r.map * BW_HEADER + 0x0c);
+        }
+        const song = bgm > 0 && bgm < 0xffff ? `m${bgm}` : null;
+        return { song, map: `p5.${r.map}`, expected: song, playing: false, own: false };
+      }
+      return ctrMusicInfo(entry, read, ctx);
+    }
     const r = readLocation(maps, entry, read);
     const music = r && m.musicTable ? maps.tables?.gen4Music?.[m.musicTable]?.[r.map] : null;
     const song = readSong(m, read);

@@ -1,0 +1,130 @@
+diff --git a/src/libretro/libretro.cpp b/src/libretro/libretro.cpp
+index b56f23a..b2901e4 100644
+--- a/src/libretro/libretro.cpp
++++ b/src/libretro/libretro.cpp
+@@ -411,3 +411,18 @@ u16 Platform::MP_RecvReplies(u8* packets, u64 timestamp, u16 aidmask, void*) {
+     }
+     return ret;
+ }
++
++// souldew (Shared World, docs/MULTIPLAYER.md › 9): the depth of the DS's 3D frame on screen, so partners drawn over the
++// picture hide where the map is nearer. `on` 0 stops keeping it. Copies a rectangle of the top screen's 3D layer, row
++// by row (24-bit depth, Z or W as the frame used) and returns 1 (| 2: W-buffered), 0 when nothing is kept yet, -1 when
++// the renderer isn't the software one.
++#include "GPU3D_Soft.h"
++extern "C" PUBLIC_SYMBOL int souldew_depth(int on, int x, int y, int w, int h, uint32_t *out) {
++    auto *nds = const_cast<melonDS::NDS*>(MelonDsDs::Core.GetConsole());
++    if (!nds) return -1;
++    auto *soft = dynamic_cast<melonDS::SoftRenderer3D*>(nds->GPU.GetRenderer().Souldew3D());
++    if (!soft) return -1;
++    soft->SouldewKeepDepth(on != 0);
++    if (!on || !out) return 0;
++    return soft->SouldewDepth(x, y, w, h, out);
++}
+diff --git a/src/libretro/render/opengl.cpp b/src/libretro/render/opengl.cpp
+index d2aec34..195f77d 100644
+--- a/src/libretro/render/opengl.cpp
++++ b/src/libretro/render/opengl.cpp
+@@ -545,7 +545,15 @@ void MelonDsDs::OpenGLRenderState::Render(
+ 
+     glBufferSubData(GL_UNIFORM_BUFFER, 0, sizeof(GL_ShaderConfig), &GL_ShaderConfig);
+ 
+-    glViewport(0, 0, screenLayout.BufferWidth(), screenLayout.BufferHeight());
++    static int wideOn = -1;
++    if (wideOn < 0) { const char* e = std::getenv("SOULDEW_DS_WIDE"); wideOn = (e && e[0] == '1') ? 1 : 0; }
++    const unsigned scale = config.ScaleFactor();
++    const bool wide = wideOn && screenLayout.Layout() == ScreenLayout::TopBottom && screenLayout.BufferWidth() == 256 * scale && screenLayout.BufferHeight() == 384 * scale;
++    const bool compact = wide && scale >= 3;
++    const unsigned topH = compact ? 192 * scale : screenLayout.BufferHeight() / 2;
++    const unsigned botH = compact ? 192 : topH;
++    const unsigned outW = wide ? 342 * scale : screenLayout.BufferWidth();
++    const unsigned outH = wide ? (topH + botH) : screenLayout.BufferHeight();
+ 
+     // Bind melonDS's output texture to texture unit 0 (the active unit after BindState).
+     // In OpenGL mode this is a 2D array texture with one layer per screen,
+@@ -556,6 +564,33 @@ void MelonDsDs::OpenGLRenderState::Render(
+     [[maybe_unused]] bool inMainMemory = nds.GPU.GetFramebuffers(&outputTexture, &unused);
+     retro_assert(!inMainMemory);
+     retro_assert(outputTexture != nullptr);
++
++    if (wide) {
++        glViewport(0, 0, outW, outH);
++        glClearColor(0, 0, 0, 1);
++        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
++        const uint16_t mb = nds.GPU.MasterBrightnessA;
++        const bool fadedOut = ((mb >> 14) == 2 && (mb & 0x1F) >= 16);
++        const bool top3d = !nds.IsLidClosed() && !fadedOut && nds.GPU.GPU2D_A.Enabled && !nds.GPU.GPU2D_A.ForcedBlank
++            && ((nds.GPU.GPU2D_A.DispCnt >> 16) & 0x3) == 1 && (nds.GPU.GPU2D_A.DispCnt & (1u << 3)) && (nds.PowerControl9 & (1u << 15));
++        if (top3d) {
++            auto* glr = dynamic_cast<melonDS::GLRenderer*>(&nds.GetRenderer());
++            const GLuint tex3d = glr ? glr->GetOutputTex3D() : 0;
++            if (tex3d) {
++                if (!_wideReadFbo) glGenFramebuffers(1, &_wideReadFbo);
++                glBindFramebuffer(GL_READ_FRAMEBUFFER, _wideReadFbo);
++                glFramebufferTexture2D(GL_READ_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex3d, 0);
++                glBindFramebuffer(GL_DRAW_FRAMEBUFFER, CurrentFramebuffer());
++                glBlitFramebuffer(0, 192 * scale, 342 * scale, 0, 0, botH, 342 * scale, outH, GL_COLOR_BUFFER_BIT, GL_NEAREST);
++                glBindFramebuffer(GL_FRAMEBUFFER, CurrentFramebuffer());
++                glActiveTexture(GL_TEXTURE0);
++            }
++        }
++        if (!compact) glViewport(43 * scale, 0, 256 * scale, outH);
++    } else {
++        glViewport(0, 0, outW, outH);
++    }
++
+     glBindTexture(GL_TEXTURE_2D_ARRAY, *static_cast<const GLuint*>(outputTexture));
+ 
+     // Set the filtering mode for the active texture
+@@ -570,6 +605,16 @@ void MelonDsDs::OpenGLRenderState::Render(
+         glClearColor(0, 0, 0, 0);
+         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+     }
++    else if (compact) {
++        glEnable(GL_SCISSOR_TEST);
++        glScissor(43 * scale, botH, 256 * scale, topH);
++        glViewport(43 * scale, static_cast<GLint>(botH) - static_cast<GLint>(topH), 256 * scale, topH * 2);
++        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
++        glScissor(0, 0, 256, botH);
++        glViewport(0, 0, 256, botH * 2);
++        glDrawArrays(GL_TRIANGLES, 0, vertexCount);
++        glDisable(GL_SCISSOR_TEST);
++    }
+     else {
+         glDrawArrays(GL_TRIANGLES, 0, vertexCount);
+     }
+@@ -587,8 +632,8 @@ void MelonDsDs::OpenGLRenderState::Render(
+ 
+     retro::video_refresh(
+         RETRO_HW_FRAME_BUFFER_VALID,
+-        screenLayout.BufferWidth(),
+-        screenLayout.BufferHeight(),
++        outW,
++        outH,
+         0
+     );
+     TracyGpuCollect;
+@@ -635,6 +680,11 @@ void MelonDsDs::OpenGLRenderState::ContextDestroyed() {
+         ubo = 0;
+     }
+ 
++    if (_wideReadFbo) {
++        glDeleteFramebuffers(1, &_wideReadFbo);
++        _wideReadFbo = 0;
++    }
++
+ #if defined(HAVE_TRACY) && !defined(__APPLE__)
+     _tracyCapture = std::nullopt;
+ #endif
+diff --git a/src/libretro/render/opengl.hpp b/src/libretro/render/opengl.hpp
+index 65ff943..dfd7db2 100644
+--- a/src/libretro/render/opengl.hpp
++++ b/src/libretro/render/opengl.hpp
+@@ -159,6 +159,7 @@ namespace MelonDsDs {
+         } GL_ShaderConfig {};
+ 
+         GLuint ubo = 0;
++        GLuint _wideReadFbo = 0;
+ 
+ #if defined(HAVE_TRACY) && !defined(__APPLE__)
+         std::optional<OpenGlTracyCapture> _tracyCapture;

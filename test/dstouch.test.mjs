@@ -191,4 +191,33 @@ test('sampleNativeFrame samples BGRA, RGBA, and RGB565 stacked DS frames', () =>
   assert.equal(s2.top[1], 0);
   assert.equal(s2.bot[0], 0);
   assert.equal(s2.bot[1], 255);
+
+  // fmt 3 (bottom-up RGBA from OpenGL): row 0 in buffer is bottom of bottom screen
+  const bottomUp = new Uint8Array(w * h * 4);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 4;
+      if (y < h / 2) { bottomUp[i] = 10; bottomUp[i + 1] = 20; bottomUp[i + 2] = 230; bottomUp[i + 3] = 255; }
+      else { bottomUp[i] = 220; bottomUp[i + 1] = 30; bottomUp[i + 2] = 40; bottomUp[i + 3] = 255; }
+    }
+  }
+  const s3 = sampleNativeFrame({ w, h, fmt: 3, px: bottomUp });
+  assert.equal(s3.top[0], 220);
+  assert.equal(s3.bot[2], 230);
+
+  // fmt 4 (bottom-up RGB565 from OpenGL): row 0 in buffer is bottom of bottom screen
+  const bottomUp565 = new Uint8Array(w * h * 2);
+  for (let y = 0; y < h; y += 1) {
+    for (let x = 0; x < w; x += 1) {
+      const i = (y * w + x) * 2;
+      const val = y < h / 2 ? 0x07e0 : 0xf800; // bottom green, top red
+      bottomUp565[i] = val & 0xff;
+      bottomUp565[i + 1] = val >> 8;
+    }
+  }
+  const s4 = sampleNativeFrame({ w, h, fmt: 4, px: bottomUp565 });
+  assert.equal(s4.top[0], 255);
+  assert.equal(s4.top[1], 0);
+  assert.equal(s4.bot[0], 0);
+  assert.equal(s4.bot[1], 255);
 });

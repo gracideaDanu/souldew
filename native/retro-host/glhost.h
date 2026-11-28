@@ -64,6 +64,12 @@ typedef ptrdiff_t GLsizeiptr;
 #ifndef GL_RGBA8
 #define GL_RGBA8 0x8058
 #endif
+#ifndef GL_RGB
+#define GL_RGB 0x1907
+#endif
+#ifndef GL_UNSIGNED_SHORT_5_6_5
+#define GL_UNSIGNED_SHORT_5_6_5 0x8363
+#endif
 #ifndef GL_FRAMEBUFFER
 #define GL_FRAMEBUFFER 0x8D40
 #endif
@@ -364,5 +370,13 @@ static bool glhost_read(unsigned w, unsigned h, bool flip_y, uint8_t *dst) {
   }
   glh.pReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGBA, GL_UNSIGNED_BYTE, glh.scratch);
   for (unsigned y = 0; y < h; y++) memcpy(dst + (size_t)(h - 1 - y) * row, glh.scratch + (size_t)y * row, row);
+  return true;
+}
+
+static bool glhost_read565(unsigned w, unsigned h, uint8_t *dst) {
+  if (!glh.ready || !glh.fbo || !w || !h || w > glh.w || h > glh.h || !dst) return false;
+  glh.pBindFramebuffer(GL_READ_FRAMEBUFFER, glh.fbo);
+  glh.pPixelStorei(GL_PACK_ALIGNMENT, 2);
+  glh.pReadPixels(0, 0, (GLsizei)w, (GLsizei)h, GL_RGB, GL_UNSIGNED_SHORT_5_6_5, dst);
   return true;
 }

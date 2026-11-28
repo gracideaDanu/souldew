@@ -47,6 +47,8 @@ export const SETTINGS = [
   { id: 'whole-pixels', section: 'play', keys: ['set.wholePixels', 'set.wholePixelsHint'], kw: `${PIC} pixel integer scaling sharp crisp blurry pixels` },
   { id: 'gb-look', section: 'play', keys: ['set.gbLook', 'set.gbLookHint'], kw: `${PIC} game boy gameboy gbc colour color palette green screen red blue yellow` },
   { id: 'ds-scale', section: 'play', keys: ['set.dsScale', 'set.dsScaleHint'], kw: `${PIC} ds nds melonds opengl 3d resolution upscale sharp hd auflösung résolution resolución risoluzione` },
+  { id: 'ds-wide', section: 'play', keys: ['set.dsWide', 'set.dsWideHint'], kw: `${PIC} ds nds widescreen 16:9 wide breitbild écran large pantalla ancha schermo panoramico` },
+  { id: 'gfx-look', section: 'play', keys: ['set.gfxLook', 'set.gfxLookHint'], kw: `${PIC} shader filter smooth xbr scanlines lcd vibrant fulldex hd smoothing glättung lissage suavizado` },
   { id: 'ctr-scale', section: 'play', keys: ['set.ctrScale', 'set.ctrScaleHint', 'set.ctrFfHint'], kw: `${PIC} 3ds resolution upscale sharp hd auflösung résolution resolución risoluzione fast-forward hint` },
   { id: 'native', section: 'play', keys: ['set.native', 'set.nativeHint'], kw: 'fast player emulator melonds mgba sameboy libretro performance speed core schneller player lecteur rapide reproductor rápido' },
   { id: 'engine', section: 'play', keys: ['set.engine', 'set.engineHint'], kw: 'souldew engine beta trade battle link cable tausch kampf échange combat intercambio combate scambio lotta' },
