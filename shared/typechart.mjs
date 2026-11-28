@@ -89,13 +89,14 @@ export function defenseChart(defTypes, gen = 4, { fairy = false } = {}) {
 const SPECIAL_BEFORE_4 = new Set(['fire', 'water', 'grass', 'electric', 'psychic', 'ice', 'dragon', 'dark']);
 export const physicalSpecialSplit = (type, cls, gen) => (cls === 'status' ? 'status' : gen >= 4 ? cls : SPECIAL_BEFORE_4.has(type) ? 'special' : 'physical');
 
-/** Move data for a generation from shared/data/moves.json: { type, power, cls }. */
+/** Move data for a generation from shared/data/moves.json: { type, power, cls, accuracy }. */
 export function moveInfo(moves, id, gen = 4) {
   if (!moves || !id || !moves.type[id]) return null;
   const old = moves.byGen?.[gen]?.[id];
   const type = old ? old[0] : moves.type[id];
   const power = old ? old[1] : moves.power[id];
-  return { type: type === 'unknown' ? null : type, power, cls: physicalSpecialSplit(type, moves.cls[id], gen) };
+  const accuracy = moves.accuracyByGen?.[gen]?.[id] ?? moves.accuracy?.[id] ?? 0;
+  return { type: type === 'unknown' ? null : type, power, cls: physicalSpecialSplit(type, moves.cls[id], gen), accuracy };
 }
 
 /** Short effect text for a move, localized where PokeAPI has a translation, with English as fallback. */

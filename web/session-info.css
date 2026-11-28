@@ -69,15 +69,23 @@
 .bt-rule.clash { display: flex; flex-direction: column; gap: 5px; border: 1px solid color-mix(in srgb, var(--cir) 45%, transparent); }
 .bt-clash { display: inline-flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; }
 .bt-block h4 { margin: 0 0 4px; font-size: 11.5px; font-weight: 500; color: var(--ink-3); }
-/* "What hits …" folds in under its head line (the opponent's moves – folded in by default, no spoiler) */
+/* move subsections fold under their head lines, inside an outer collapsible Moves block */
 .bt-fold { display: flex; align-items: center; gap: 6px; width: 100%; min-height: 20px; margin: -2px 0; padding: 0; border: 0; background: none; color: inherit; font-weight: inherit; text-align: left; cursor: pointer; }
 .bt-fold-title { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bt-fold svg { flex: none; width: 14px; height: 14px; margin-left: auto; }
 .bt-fold:hover, .bt-fold:focus-visible { color: var(--ink); }
-.bt-hits.folded h4 { margin-bottom: 0; }
-.bt-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 3px; }
-.bt-moves li { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 12px; }
-.bt-moves .type { color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bt-block.folded > h4 { margin-bottom: 0; }
+.bt-moves-group > h4 { color: var(--ink-2); }
+.bt-moves-group-body { display: grid; gap: 6px; padding-left: 8px; border-left: 1px solid color-mix(in srgb, var(--edge) 75%, transparent); }
+.bt-moves-group-body[hidden], .bt-moves[hidden] { display: none; }
+.bt-moves { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.bt-moves li { display: flex; align-items: center; justify-content: space-between; gap: 6px; font-size: 12px; min-width: 0; }
+.bt-moves li + li { margin-top: 0; }
+.bt-move-main { display: inline-flex; align-items: center; gap: 5px; flex: 1; min-width: 0; }
+.bt-moves .type { color: var(--ink); flex: 0 1 auto; min-width: 0; }
+.bt-moves .type::before { flex: none; }
+.bt-move-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.bt-move-stat { flex: none; white-space: nowrap; font-size: 10.5px; color: var(--ink-3); }
 .mult { flex: none; font-size: 11.5px; padding: 1px 6px; border-radius: 99px; font-variant-numeric: tabular-nums; }
 .mult.xhigh { background: color-mix(in srgb, var(--tri) 15%, transparent); color: var(--ok-ink); }
 .mult.xlow { background: color-mix(in srgb, var(--warn) 12%, transparent); color: var(--warn-ink); }

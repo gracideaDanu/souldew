@@ -2069,7 +2069,7 @@ ${!target.link && html`          ${btn(paused ? 'resume' : 'pause', t('keys.paus
     <${LocationSign} here=${here} live=${liveState.status === 'live'} isRun=${isRun} game=${liveRef.current?.entry} />
     ${isRun && names && html`<${RunStrip} mine=${myParty} onRules=${() => setRulesOpen(true)} />`}`;
   const battleEl = battle?.enemy && html`<${BattlePanel} battle=${battle} mine=${myParty} gen=${gameGen} game=${liveGame} isRun=${isRun}
-    collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} hitsOpen=${panelPrefs.hits} noMoves=${features?.moves === 'no'} />`;
+    collapsed=${panelPrefs.collapsed} onPrefs=${setPanelPrefs} hitsOpen=${panelPrefs.hits} movesOpen=${panelPrefs.moves} myMovesOpen=${panelPrefs.myMoves} noMoves=${features?.moves === 'no'} />`;
   const groups = isRun && names && !solo && !isTogether(manifest);
   const teamEl = html`
     <${LiveStatus} status=${liveState.status} phase=${phase} names=${names} me=${me} others=${others}
