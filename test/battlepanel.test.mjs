@@ -93,3 +93,11 @@ test('Moves section and both move subsections collapse individually; opponent he
   assert.match(css, /\.bt-block\.folded > h4 \{ margin-bottom: 0; \}/);
   assert.match(css, /\.bt-moves-group-body\[hidden\], \.bt-moves\[hidden\] \{ display: none; \}/);
 });
+
+test('play passes current location to BattlePanel and BattlePanel uses wildBattleVerdict with here', () => {
+  const panel = src('session-info.mjs');
+  const play = src('play.mjs');
+  assert.match(play, /<\$\{BattlePanel\}[^>]*here=\$\{here\}/);
+  assert.match(panel, /export function BattlePanel\(\{[^}]*here = null[^}]*\}\)/);
+  assert.match(panel, /wildBattleVerdict\(doc, manifest, runData, slot, foe, \{ here, blocked, clash, legendary: isLegendary\(foe\.species\) \}\)/);
+});

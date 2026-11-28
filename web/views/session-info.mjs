@@ -7,7 +7,7 @@ import { Icon } from '../lib/icons.mjs';
 import { t, currentLang } from '../lib/i18n.mjs';
 import { speciesName, speciesFormName, typeLabel, moveName, romTypesNow, pokeapi } from '../lib/data.mjs';
 import {
-  party as partyAreas, live, pairState, encounter, levelCap, rules as getRules, dupeOf, players as getPlayers,
+  party as partyAreas, live, pairState, encounter, levelCap, rules as getRules, wildBattleVerdict, players as getPlayers,
   areaName, causeText, slotsOf, othersOf, openAreas, isNuzlocke, isTogether, pairTypeClash, typeHelpOn, progression, lives as getLives, livesFor,
 } from '../lib/run.mjs';
 import { statusOf, statusLabel, shownLevel } from './party.mjs';
@@ -435,7 +435,7 @@ const monName = (m) => (m ? m.nickname || speciesName(m.species) : '');
  * folded in or unfolded (useBattlePanelPrefs). `game`: the running game's memory-table id (a formula quirk of
  * Ruby/Sapphire).
  */
-export function BattlePanel({ battle, mine, gen, game = '', isRun, collapsed = false, hitsOpen = false, movesOpen = true, myMovesOpen = true, onPrefs, noMoves = false }) {
+export function BattlePanel({ battle, mine, gen, game = '', isRun, collapsed = false, hitsOpen = false, movesOpen = true, myMovesOpen = true, onPrefs, here = null, noMoves = false }) {
   const { doc, manifest, me, runData } = useApp();
   const moves = useMoves();
   const foe = battle?.enemy;
@@ -500,21 +500,25 @@ export function BattlePanel({ battle, mine, gen, game = '', isRun, collapsed = f
   if (battle.kind === 'wild' && r) {
     const blocked = blockedTypes(doc, runData, slot, manifest).find((b) => b.type === foeTypes[0]);
     const clash = !blocked && pairTypeClash(doc, manifest, runData, slot, foe.species);
-    const dupe = runData && dupeOf(doc, manifest, runData, foe.species, slot);
     const names = getPlayers(doc, manifest);
-    // Solo: legendaries count as static encounters – the statics rule says whether they use up the area
-    const statics = solo && isLegendary(foe.species) ? r.statics : null;
-    if (foe.shiny && r.shinyClause) rule = { ok: true, text: solo ? t('battle.shinySolo', 'Shiny – free catch.') : t('battle.shinyOk', 'Shiny clause: you may always catch this one – it stays unlinked.') };
-    else if (statics === 'banned') rule = { ok: false, text: t('battle.staticBanned', 'Legendary/static – banned by your rules, don’t catch it.') };
-    else if (blocked) rule = { ok: false, text: t('battle.typeTaken', 'Type rule: {type} is taken by {mon} ({name}) – don’t catch it.', { type: typeLabel(blocked.type), mon: speciesName(blocked.species), name: solo ? t('common.you', 'you') : names[blocked.slot]?.name || '' }) };
-    else if (clash) rule = { ok: false, clash: true, text: clash.now
-      ? t('battle.typePairNow', 'Type rule: {name} is fighting {mon} here right now – also {type}. Only one of you may catch theirs, or {type} is taken twice.', { name: names[clash.slot]?.name || '', mon: speciesName(clash.species), type: typeLabel(clash.type) })
-      : t('battle.typePair', 'Type rule: {name} caught {mon} here – also {type}. You may not catch this one as well, or {type} is taken twice.', { name: names[clash.slot]?.name || '', mon: speciesName(clash.species), type: typeLabel(clash.type) }) };
-    else if (dupe && statics !== 'free') rule = { ok: false, text: solo ? t('battle.dupeSolo', 'Dupe – keep looking. It doesn’t count, flee freely ({area}).', { area: areaName(doc, manifest, dupe.area) })
-      : dupe.missed ? t('battle.dupeMissed', 'Dupes clause: this evolution line already got away once ({area}).', { area: areaName(doc, manifest, dupe.area) })
-        : t('battle.dupe', 'Dupes clause: this evolution line is already caught ({area}).', { area: areaName(doc, manifest, dupe.area) }) };
-    else if (statics === 'free') rule = { ok: true, text: t('battle.staticFree', 'Legendary/static – a free catch, it doesn’t use up the area.') };
-    else if (statics === 'area') rule = { ok: true, text: t('battle.staticArea', 'Legendary/static – counts as this area’s encounter.') };
+    const v = wildBattleVerdict(doc, manifest, runData, slot, foe, { here, blocked, clash, legendary: isLegendary(foe.species) });
+    if (v?.kind === 'beforeBalls') rule = { ok: false, text: t('battle.beforeBalls', 'Before your first Poké Balls – encounters don’t count yet.') };
+    else if (v?.kind === 'shiny') rule = { ok: true, text: solo ? t('battle.shinySolo', 'Shiny – free catch.') : t('battle.shinyOk', 'Shiny clause: you may always catch this one – it stays unlinked.') };
+    else if (v?.kind === 'staticBanned') rule = { ok: false, text: t('battle.staticBanned', 'Legendary/static – banned by your rules, don’t catch it.') };
+    else if (v?.kind === 'areaSpent') rule = { ok: false, text: v.enc?.outcome === 'caught' && v.enc.species
+      ? t('battle.areaCaught', '{area} is already used ({mon}) – don’t catch it.', { area: v.place, mon: v.enc.nickname || speciesName(v.enc.species) })
+      : t('battle.areaUsed', '{area} is already used – don’t catch it.', { area: v.place }) };
+    else if (v?.kind === 'blocked') rule = { ok: false, text: t('battle.typeTaken', 'Type rule: {type} is taken by {mon} ({name}) – don’t catch it.', { type: typeLabel(v.blocked.type), mon: speciesName(v.blocked.species), name: solo ? t('common.you', 'you') : names[v.blocked.slot]?.name || '' }) };
+    else if (v?.kind === 'clash') rule = { ok: false, clash: true, text: v.clash.now
+      ? t('battle.typePairNow', 'Type rule: {name} is fighting {mon} here right now – also {type}. Only one of you may catch theirs, or {type} is taken twice.', { name: names[v.clash.slot]?.name || '', mon: speciesName(v.clash.species), type: typeLabel(v.clash.type) })
+      : t('battle.typePair', 'Type rule: {name} caught {mon} here – also {type}. You may not catch this one as well, or {type} is taken twice.', { name: names[v.clash.slot]?.name || '', mon: speciesName(v.clash.species), type: typeLabel(v.clash.type) }) };
+    else if (v?.kind === 'dupe') rule = { ok: false, text: solo ? t('battle.dupeSolo', 'Dupe – keep looking. It doesn’t count, flee freely ({area}).', { area: areaName(doc, manifest, v.dupe.area) })
+      : v.dupe.missed ? t('battle.dupeMissed', 'Dupes clause: this evolution line already got away once ({area}).', { area: areaName(doc, manifest, v.dupe.area) })
+        : t('battle.dupe', 'Dupes clause: this evolution line is already caught ({area}).', { area: areaName(doc, manifest, v.dupe.area) }) };
+    else if (v?.kind === 'staticFree') rule = { ok: true, text: t('battle.staticFree', 'Legendary/static – a free catch, it doesn’t use up the area.') };
+    else if (v?.kind === 'staticArea') rule = { ok: true, text: t('battle.staticArea', 'Legendary/static – counts as this area’s encounter.') };
+    else if (v?.kind === 'firstHere') rule = { ok: true, text: solo ? t('battle.firstHere', 'First encounter in {area} – catch it.', { area: v.place })
+      : t('battle.catchableHere', 'Allowed by your rules – first encounter in {area}.', { area: v.place }) };
     else if (solo) rule = { ok: true, text: t('battle.firstSolo', 'First encounter – catch it. (If this area is already used, it doesn’t count.)') };
     else rule = { ok: true, text: t('battle.catchable', 'Allowed by your rules – if it’s the first encounter in this area.') };
   }

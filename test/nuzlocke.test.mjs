@@ -311,3 +311,53 @@ test('loading an older savestate (fewer badges) does not announce or judge a bad
   assert.equal(badgeFeed(), 2);
   assert.equal(Object.keys(d.scan('capbreak:p1:')).length, 1);
 });
+
+test('BW2 / Gen 5: genOfRun resolves Gen 5 without runData, spent areas block catches before dupes or first-encounter hints', () => {
+  const BW2 = { id: 'run-bw2', mode: 'nuzlocke', game: { id: 'pokemon-black-2', system: 'nds', code: 'IREO' }, players: { p1: { name: 'A' } } };
+  const SM = { id: 'run-sm', mode: 'nuzlocke', game: { id: 'pokemon-sun', system: '3ds', code: 'BNDA' }, players: { p1: { name: 'A' } } };
+  assert.equal(R.genOfRun(BW2), 5);
+  assert.equal(R.genOfRun(SM), 7);
+
+  const rd = { familyRoot: (id) => id, types: () => [] };
+  const d = mkDoc({ startAtBalls: true });
+  const osha = { key: 's1', species: 501, nickname: 'Oshi', level: 5, hp: 20, maxHp: 20, metLocation: 117, metLevel: 5 };
+  const patrat = { key: 'p1', species: 504, nickname: 'Patrat', level: 2, hp: 14, maxHp: 14, metLocation: 124, metLevel: 2 };
+  const patrat2 = { key: 'p2', species: 504, nickname: 'Patrat2', level: 3, hp: 15, maxHp: 15, metLocation: 124, metLevel: 3 };
+  const route19 = { gen: 5, id: 124, name: 'Route 19' };
+  const route20 = { gen: 5, id: 125, name: 'Route 20' };
+
+  // before first Poke Balls
+  assert.equal(R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 509 }, { here: route19 }).kind, 'beforeBalls');
+  R.startRules(d, BW2, 'p1', 'bag');
+
+  R.applySnapshot(d, BW2, 5, 'p1', { source: 'live', party: [osha, patrat] }, { rd });
+  d.set('area:m5-124', { ...d.get('area:m5-124'), name: 'Route 19' });
+  R.applySnapshot(d, BW2, 5, 'p1', { source: 'live', party: [osha, patrat, patrat2] }, { rd });
+  // checks() without rd still resolves Gen 5 so a second catch on spent m5-124 is flagged
+  assert.equal(R.checks(d, BW2, null).filter((c) => c.area === 'm5-124' && c.text.includes('second catch')).length, 1);
+
+  // on already-spent Route 19: neither Purrloin nor Patrat looks open or triggers "dupe – keep looking"
+  const vPurrloin = R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 509 }, { here: route19 });
+  assert.deepEqual([vPurrloin.ok, vPurrloin.kind, vPurrloin.place], [false, 'areaSpent', 'Route 19']);
+  const vPatrat = R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 504 }, { here: route19 });
+  assert.deepEqual([vPatrat.ok, vPatrat.kind, vPatrat.place], [false, 'areaSpent', 'Route 19']);
+  // shiny clause and free statics still override a spent area; non-free static does not
+  assert.equal(R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 509, shiny: true }, { here: route19 }).kind, 'shiny');
+  d.set('rules', { ...R.rules(d, BW2), statics: 'free' });
+  assert.equal(R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 638 }, { here: route19, legendary: true }).kind, 'staticFree');
+  d.set('rules', { ...R.rules(d, BW2), statics: 'area' });
+  assert.equal(R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 638 }, { here: route19, legendary: true }).kind, 'areaSpent');
+
+  // on an open area (Route 20): dupe clause catches Patrat, non-dupe Sewaddle is catchable
+  assert.equal(R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 504 }, { here: route20 }).kind, 'dupe');
+  const vSewaddle = R.wildBattleVerdict(d, BW2, rd, 'p1', { species: 540 }, { here: route20 });
+  assert.deepEqual([vSewaddle.ok, vSewaddle.kind, vSewaddle.place], [true, 'firstHere', 'Route 20']);
+
+  // SoulLink: partner miss locks the area when failKillsPair is on, keeps it open when off
+  const link = mkDoc({ failKillsPair: true });
+  R.markMissed(link, PAIR, 'route-29', 'p2', { species: 19 });
+  const hg29 = { gen: 4, id: 177, name: 'Route 29' };
+  assert.equal(R.wildBattleVerdict(link, PAIR, rd, 'p1', { species: 16 }, { here: hg29 }).kind, 'areaSpent');
+  link.set('rules', { ...R.rules(link, PAIR), failKillsPair: false });
+  assert.equal(R.wildBattleVerdict(link, PAIR, rd, 'p1', { species: 16 }, { here: hg29 }).kind, 'firstHere');
+});

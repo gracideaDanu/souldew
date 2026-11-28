@@ -70,7 +70,14 @@ export function profileOf(manifest) {
 }
 
 export function genOfRun(manifest, runData) {
-  return runData?.gen || { gb: 1, gbc: 2, gba: 3, nds: 4, '3ds': 6 }[manifest?.game?.system] || 4;
+  if (runData?.gen) return runData.gen;
+  const g = catalogGame(manifest?.game?.id) || catalogGame(manifest?.base?.gameId);
+  if (g?.generation) return g.generation;
+  if (manifest?.game?.generation) return manifest.game.generation;
+  const code = String(manifest?.game?.code || '').toUpperCase();
+  if (/^IR[ABDE]/.test(code)) return 5;
+  if (/^(?:BN[DE]|A2[AB])/.test(code)) return 7;
+  return { gb: 1, gbc: 2, gba: 3, nds: 4, '3ds': 6 }[manifest?.game?.system] || 4;
 }
 
 /** 'classic' | 'hardcore' | 'custom' – which preset a set of rules matches (caps `true` count as 'strict'). */
@@ -1089,7 +1096,7 @@ export function checks(doc, manifest, rd) {
       }
     }
   }
-  if (solo) out.push(...nuzlockeChecks(doc, manifest, r, capLevel));
+  if (solo) out.push(...nuzlockeChecks(doc, manifest, r, capLevel, rd));
   return out;
 }
 
@@ -1102,10 +1109,10 @@ export function isDefaultName(species, nick) {
 }
 
 /** Nuzlocke-only rule checks for p1: catches on a spent area, badges won over the cap, missing nicknames. */
-function nuzlockeChecks(doc, manifest, r, capLevel) {
+function nuzlockeChecks(doc, manifest, r, capLevel, rd = null) {
   const out = [];
   const slot = 'p1';
-  const gen = genOfRun(manifest);
+  const gen = genOfRun(manifest, rd);
   const an = (k) => areaName(doc, manifest, k);
   const extras = doc.scan(`extra:${slot}:`);
   const ignored = doc.scan(`ign:${slot}:`);
@@ -1159,6 +1166,36 @@ export function dupeOf(doc, manifest, rd, species, slot, exceptArea) {
     }
   }
   return missed;
+}
+
+/**
+ * Catch verdict for a wild battle in a Nuzlocke or SoulLink, taking the current place (`here`, from the place sign)
+ * into account: a spent area blocks catching before dupes ("keep looking") or "first encounter" can fire, while
+ * shiny clause and free statics still allow it. Returns `{ ok, kind, ... }` or null when no rules apply.
+ */
+export function wildBattleVerdict(doc, manifest, rd, slot, foe, { here = null, blocked = null, clash = null, legendary = false } = {}) {
+  if (!doc || !manifest || isTogether(manifest) || !foe?.species) return null;
+  const r = rules(doc, manifest);
+  const solo = isNuzlocke(manifest);
+  const statics = solo && legendary ? r.statics : null;
+  const gen = genOfRun(manifest, rd);
+  const area = here ? areaForPlace(doc, manifest, gen, here) : null;
+  const areaEnc = area ? encounter(doc, area, slot) : null;
+  const areaSt = area ? pairState(doc, area, manifest).state : null;
+  const areaSpent = !!area && (!!areaEnc || areaSt === 'dead' || (areaSt === 'failed' && r.failKillsPair !== false));
+  const storedName = area ? areaName(doc, manifest, area) : '';
+  const place = (storedName && storedName !== area ? storedName : '') || here?.name || storedName;
+  if (beforeBalls(doc, manifest, slot)) return { ok: false, kind: 'beforeBalls' };
+  if (foe.shiny && r.shinyClause) return { ok: true, kind: 'shiny' };
+  if (statics === 'banned') return { ok: false, kind: 'staticBanned' };
+  if (areaSpent && statics !== 'free') return { ok: false, kind: 'areaSpent', area, place, enc: areaEnc };
+  if (blocked) return { ok: false, kind: 'blocked', blocked };
+  if (clash) return { ok: false, kind: 'clash', clash };
+  const dupe = rd ? dupeOf(doc, manifest, rd, foe.species, slot) : null;
+  if (dupe && statics !== 'free') return { ok: false, kind: 'dupe', dupe };
+  if (statics === 'free') return { ok: true, kind: 'staticFree' };
+  if (statics === 'area') return { ok: true, kind: 'staticArea' };
+  return { ok: true, kind: area ? 'firstHere' : 'first', area, place };
 }
 
 // ---------------------------------------------------------------------------
