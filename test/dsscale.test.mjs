@@ -108,10 +108,6 @@ test('Gen 5 Black 2 Shared World table, RAM reader, and Play together compatibil
       mmdlPtr: '0x0230C644',
       inBattleAddr: '0x021B5138',
       overworldVal: '0x2800',
-      frameCounterAddr: '0x0214C360',
-      gameSysPtr: '0x021410F4',
-      eventOffset: '0x18',
-      genderOffset: '0x19D41',
     },
   };
   const t = dsWorldTable(entry);
@@ -124,11 +120,7 @@ test('Gen 5 Black 2 Shared World table, RAM reader, and Play together compatibil
   const w16 = (a, v) => dv.setUint16(a - 0x02000000, v & 0xffff, true);
   w32(0x02000024, 0x02204CC4);
   w16(0x02204CC4 + 0x41B5C, 427);
-  ram[0x02204CC4 + 0x19D41 - 0x02000000] = 1; // female in PlayerData
   w16(0x021B5138, 0x2800);
-  w32(0x0214C360, 1);
-  w32(0x021410F4, 0x0223B280);
-  w32(0x0223B280 + 0x18, 0);
   w32(0x02143A0C + 8 + 0, 2 * 4096);
   w32(0x02143A0C + 8 + 20, 3 * 4096);
   w32(0x02143A0C + 8 + 44, -4096);
@@ -147,23 +139,13 @@ test('Gen 5 Black 2 Shared World table, RAM reader, and Play together compatibil
 
   const read = (a, n) => ram.subarray(a - 0x02000000, a - 0x02000000 + n);
   const ptr = dsPointers(t, read);
-  assert.deepEqual(ptr, {
-    obj: mmdl,
-    zoneAddr: 0x02204CC4 + 0x41B5C,
-    eventAddr: 0x0223B280 + 0x18,
-    genderAddr: 0x02204CC4 + 0x19D41,
-  });
-  const ranges = dsWatchRanges(t, ptr);
-  assert.equal(ranges.length, 8);
-  assert.ok(ranges.reduce((n, r) => n + r[1], 0) <= 512);
+  assert.deepEqual(ptr, { obj: mmdl, zoneAddr: 0x02204CC4 + 0x41B5C });
+  assert.equal(dsWatchRanges(t, ptr).length, 5);
   const frame = dsReadFrame(t, read, ptr);
-  assert.equal(frame.fc, 1);
   assert.equal(dsDrawable(frame), true);
   const p = dsPlayer(t, frame);
   assert.equal(p.map, 427);
   assert.equal(p.x, 712);
   assert.equal(p.y, 12248);
-  assert.equal(p.gender, 1); // static PlayerData.gender even when objCode is 0xe7
-  w32(0x0223B280 + 0x18, 0x0224735C); // active GMEVENT* (textbox / cutscene / menu)
-  assert.equal(dsDrawable(dsReadFrame(t, read, ptr)), false);
+  assert.equal(p.gender, 0);
 });

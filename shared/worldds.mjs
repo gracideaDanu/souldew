@@ -57,10 +57,6 @@ export function dsWorldTable(entry) {
       mmdlPtr: hex(w.mmdlPtr),
       inBattleAddr: hex(w.inBattleAddr),
       overworldVal: hex(w.overworldVal || '0x2800'),
-      frameCounterAddr: w.frameCounterAddr ? hex(w.frameCounterAddr) : 0,
-      gameSysPtr: w.gameSysPtr ? hex(w.gameSysPtr) : 0,
-      eventOffset: w.eventOffset ? hex(w.eventOffset) : 0,
-      genderOffset: w.genderOffset ? hex(w.genderOffset) : 0,
       mmodel: w.mmodel,
       sprites: w.sprites,
       followers: w.followers || 'none',
@@ -127,11 +123,7 @@ export function dsPointers(t, read) {
         }
       }
     }
-    const gsp = t.gameSysPtr ? read(t.gameSysPtr, 4) : null;
-    const gs = ok(gsp, 4) ? u32(gsp, 0) : 0;
-    const eventAddr = inRam(gs) ? gs + t.eventOffset : 0;
-    const genderAddr = t.genderOffset ? 0x02000000 + (p24 & 0xffffff) + t.genderOffset : 0;
-    return obj ? { obj, zoneAddr, ...(eventAddr ? { eventAddr } : {}), ...(genderAddr ? { genderAddr } : {}) } : null;
+    return obj ? { obj, zoneAddr } : null;
   }
   const p = read(t.fieldSystem, 4);
   if (!ok(p, 4)) return null;
@@ -167,12 +159,7 @@ export function dsWatchRanges(t, ptr) {
   if (!t) return [];
   if (t.gen === 5) {
     const r = [[t.glb + 8, 0x74], [t.inBattleAddr, 2], [t.mmdlPtr, 4]];
-    if (t.frameCounterAddr) r.push([t.frameCounterAddr, 4]);
-    if (ptr) {
-      r.push([ptr.obj, 0x54], [ptr.zoneAddr, 2]);
-      if (ptr.eventAddr) r.push([ptr.eventAddr, 4]);
-      if (ptr.genderAddr) r.push([ptr.genderAddr, 1]);
-    }
+    if (ptr) r.push([ptr.obj, 0x54], [ptr.zoneAddr, 2]);
     return r;
   }
   const r = [
@@ -206,9 +193,7 @@ export function dsReadFrame(t, read, ptr) {
     const C = [];
     for (let i = 0; i < 12; i++) C.push(fx(g, 0x44 + i * 4));
     const glbOk = Math.abs(P[11] + 1) < 0.02 && P[0] > 0.2 && P[5] > 0.2;
-    const fcB = t.frameCounterAddr ? read(t.frameCounterAddr, 4) : null;
-    const fc = ok(fcB, 4) ? u32(fcB, 0) : 1;
-    const out = { vb: 0, fc, keys: 0, P, C, field: false };
+    const out = { vb: 0, fc: 1, keys: 0, P, C, field: false };
     if (!ptr) return out;
     const o = read(ptr.obj, 0x54);
     const z = read(ptr.zoneAddr, 2);
@@ -216,17 +201,14 @@ export function dsReadFrame(t, read, ptr) {
     const zone = u16(z, 0);
     const bat = u16(batB, 0);
     const running = glbOk && bat === t.overworldVal && zone < 1000 ? 1 : 0;
-    const evB = ptr.eventAddr ? read(ptr.eventAddr, 4) : null;
-    const task = ok(evB, 4) ? u32(evB, 0) : 0;
     const objCode = u32(o, 0x0c);
-    const gB = ptr.genderAddr ? read(ptr.genderAddr, 1) : null;
-    const gender = ok(gB, 1) && gB[0] <= 1 ? gB[0] : (objCode === 0xe8 || objCode === 0xea || objCode === 0xec || objCode === 0xf0 ? 1 : 0);
+    const gender = objCode === 0xe8 || objCode === 0xec || objCode === 0xf0 ? 1 : 0;
     const state = objCode === 0xe9 || objCode === 0xea ? 1 : objCode === 0xeb || objCode === 0xec ? 2 : 0;
     return {
       ...out,
       follow: null,
       field: true,
-      task,
+      task: 0,
       running,
       parent: 1,
       child: 0,
